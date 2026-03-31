@@ -61,7 +61,7 @@ export default function DashboardPage() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <TopBar
-        title={`Bonjour, ${user?.name?.split(" ")[0] ?? "..."} 👋`}
+        title={`Bonjour, ${user?.firstName ?? "..."} 👋`}
         subtitle={new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
       />
 

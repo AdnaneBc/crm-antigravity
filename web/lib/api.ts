@@ -64,10 +64,14 @@ export const visitsApi = {
     api.get("/visits", { params }).then((r) => r.data),
   get: (id: string) => api.get(`/visits/${id}`).then((r) => r.data),
   teamDelegates: () => api.get("/visits/team-delegates").then((r) => r.data),
+  pendingCount: () => api.get("/visits/pending-count").then((r) => r.data),
   create: (data: any) => api.post("/visits", data).then((r) => r.data),
+  validate: (id: string, data: { action: "approve" | "reject"; rejectionReason?: string }) =>
+    api.patch(`/visits/${id}/validate`, data).then((r) => r.data),
   submitReport: (id: string, data: any) =>
     api.post(`/visits/${id}/report`, data).then((r) => r.data),
   update: (id: string, data: any) => api.patch(`/visits/${id}`, data).then((r) => r.data),
+  cancel: (id: string) => api.patch(`/visits/${id}/cancel`, {}).then((r) => r.data),
   remove: (id: string) => api.delete(`/visits/${id}`).then((r) => r.data),
 };
 
@@ -76,8 +80,10 @@ export const promoItemsApi = {
   get: (id: string) => api.get(`/promotional-items/${id}`).then((r) => r.data),
   myStock: () => api.get("/promotional-items/my-stock").then((r) => r.data),
   create: (data: any) => api.post("/promotional-items", data).then((r) => r.data),
+  update: (id: string, data: any) => api.patch(`/promotional-items/${id}`, data).then((r) => r.data),
   allocate: (id: string, data: any) =>
     api.post(`/promotional-items/${id}/allocate`, data).then((r) => r.data),
+  stockAlerts: () => api.get("/promotional-items/stock-alerts").then((r) => r.data),
 };
 
 export const usersApi = {

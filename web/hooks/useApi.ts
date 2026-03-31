@@ -110,7 +110,36 @@ export function useSubmitVisitReport() {
       qc.invalidateQueries({ queryKey: ["visits"] });
       qc.invalidateQueries({ queryKey: ["my-stock"] });
       qc.invalidateQueries({ queryKey: ["analytics"] });
+      qc.invalidateQueries({ queryKey: ["stock-alerts"] });
     },
+  });
+}
+
+export function useValidateVisit() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { action: "approve" | "reject"; rejectionReason?: string } }) =>
+      visitsApi.validate(id, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["visits"] });
+      qc.invalidateQueries({ queryKey: ["pending-count"] });
+    },
+  });
+}
+
+export function useCancelVisit() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => visitsApi.cancel(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["visits"] }),
+  });
+}
+
+export function usePendingValidationCount() {
+  return useQuery({
+    queryKey: ["pending-count"],
+    queryFn: visitsApi.pendingCount,
+    refetchInterval: 60_000, // re-check every minute
   });
 }
 
@@ -136,8 +165,15 @@ export function useAllocateStock() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: any }) => promoItemsApi.allocate(id, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["promo-items"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["promo-items"] });
+      qc.invalidateQueries({ queryKey: ["stock-alerts"] });
+    },
   });
+}
+
+export function useStockAlerts() {
+  return useQuery({ queryKey: ["stock-alerts"], queryFn: promoItemsApi.stockAlerts });
 }
 
 // ─── USERS / TEAM ─────────────────────────────────────────────────────────────

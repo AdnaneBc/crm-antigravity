@@ -62,15 +62,10 @@ export default function Sidebar() {
 
   const visibleItems = NAV_ITEMS.filter((item) => !item.managerOnly || isManager);
 
-  // Initials from single "name" field
-  const initials = user?.name
-    ? user.name
-        .split(" ")
-        .map((n) => n[0])
-        .join("")
-        .slice(0, 2)
-        .toUpperCase()
-    : "?";
+  // Initials from firstName + lastName
+  const initials = user
+    ? `${user.firstName?.[0] ?? ''}${user.lastName?.[0] ?? ''}`.toUpperCase() || '?'
+    : '?';
 
   const roleLabel =
     user?.platformRole === "SUPER_ADMIN"
@@ -138,7 +133,7 @@ export default function Sidebar() {
               {initials}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="text-sm font-medium text-white truncate">{user.name}</div>
+              <div className="text-sm font-medium text-white truncate">{user.firstName} {user.lastName}</div>
               <div className="text-xs text-slate-400 truncate">{roleLabel}</div>
             </div>
           </div>

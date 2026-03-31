@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { useDoctors, useTeamDelegates, useCreateVisit } from "@/hooks/useApi";
-import { X, User, Users, Loader2, CalendarDays } from "lucide-react";
+import { useDoctors, useCreateVisit } from "@/hooks/useApi";
+import { X, User, Loader2, CalendarDays, Info } from "lucide-react";
 import { format } from "date-fns";
 
 interface Props {
@@ -13,15 +13,12 @@ interface Props {
 
 export default function VisitCreateModal({ initialDate, onClose }: Props) {
   const { user } = useAuth();
-  const isDelegate = user?.businessRole === "DELEGATE";
-  const isDSM = user?.businessRole === "DSM";
+  const businessRole = user?.businessRole;
 
   const { data: doctors = [] } = useDoctors();
-  const { data: teamDelegates = [] } = useTeamDelegates();
   const createVisit = useCreateVisit();
 
   const [doctorId, setDoctorId] = useState("");
-  const [delegateId, setDelegateId] = useState("");
   const [visitedAt, setVisitedAt] = useState(format(new Date(), "yyyy-MM-dd'T'HH:mm"));
   const [notes, setNotes] = useState("");
 
@@ -33,13 +30,8 @@ export default function VisitCreateModal({ initialDate, onClose }: Props) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const payload: any = {
-      doctorId,
-      visitedAt,
-      notes: notes || undefined,
-    };
-    if (!isDelegate && delegateId) payload.delegateId = delegateId;
-    await createVisit.mutateAsync(payload);
+    // delegateId is NEVER sent — server always assigns the logged-in user
+    await createVisit.mutateAsync({ doctorId, visitedAt, notes: notes || undefined });
     onClose();
   }
 
@@ -62,38 +54,30 @@ export default function VisitCreateModal({ initialDate, onClose }: Props) {
             <X size={18} />
           </button>
         </div>
-        <p className="text-xs text-slate-400 mb-5">
-          Le rapport de visite sera complété après la visite.
-        </p>
+
+        {/* Info pill — pending validation notice */}
+        <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-5">
+          <Info size={13} className="text-amber-600 mt-0.5 shrink-0" />
+          <p className="text-xs text-amber-700">
+            Cette visite sera soumise pour validation à votre responsable avant d'être confirmée.
+          </p>
+        </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Delegate */}
+          {/* Delegate — always the logged-in user, read-only */}
           <div>
             <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
               Délégué
             </label>
-            {isDelegate ? (
-              <div className="flex items-center gap-2 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700">
-                <User size={14} className="text-slate-400" />
-                <span className="font-medium">{user?.name}</span>
-                <span className="text-xs text-slate-400 ml-auto">(vous)</span>
-              </div>
-            ) : isDSM && teamDelegates.length > 0 ? (
-              <select
-                value={delegateId}
-                onChange={(e) => setDelegateId(e.target.value)}
-                className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500"
-              >
-                <option value="">— Moi-même (DSM) —</option>
-                {teamDelegates.map((d: any) => (
-                  <option key={d.id} value={d.id}>{d.User?.name}</option>
-                ))}
-              </select>
-            ) : (
-              <div className="flex items-center gap-2 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-500">
-                <Users size={14} className="text-slate-400" />
-                {isDSM ? "Aucun délégué dans votre équipe" : "Assigné à vous par défaut"}
-              </div>
+            <div className="flex items-center gap-2 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700">
+              <User size={14} className="text-slate-400" />
+              <span className="font-medium">{user?.firstName} {user?.lastName}</span>
+              <span className="text-xs text-slate-400 ml-auto">(vous)</span>
+            </div>
+            {businessRole === "DSM" && (
+              <p className="text-xs text-slate-400 mt-1">
+                En tant que DSM, vous planifiez uniquement vos propres visites.
+              </p>
             )}
           </div>
 
@@ -155,7 +139,7 @@ export default function VisitCreateModal({ initialDate, onClose }: Props) {
             <button type="submit" disabled={createVisit.isPending}
               className="flex-1 px-4 py-2.5 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium flex items-center justify-center gap-2 disabled:opacity-60">
               {createVisit.isPending && <Loader2 size={14} className="animate-spin" />}
-              Planifier
+              Soumettre pour validation
             </button>
           </div>
         </form>

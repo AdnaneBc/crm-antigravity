@@ -10,6 +10,7 @@ const DEMO_ACCOUNTS = [
   { label: "Dir. District", email: "dsm@demo.com", role: "DSM" },
   { label: "Dir. National", email: "nsm@demo.com", role: "NSM" },
   { label: "Administrateur", email: "admin@demo.com", role: "ADMIN" },
+  { label: "Super Admin", email: "superadmin@demo.com", role: "SUPER_ADMIN" },
 ];
 
 export default function LoginPage() {
@@ -23,7 +24,11 @@ export default function LoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    if (!isLoading && isAuthenticated) router.replace("/dashboard");
+    if (!isLoading && isAuthenticated) {
+      const stored = localStorage.getItem("crm_user");
+      const parsed = stored ? JSON.parse(stored) : null;
+      router.replace(parsed?.platformRole === "SUPER_ADMIN" ? "/platform/dashboard" : "/dashboard");
+    }
   }, [isAuthenticated, isLoading, router]);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -32,7 +37,9 @@ export default function LoginPage() {
     setIsSubmitting(true);
     try {
       await login(email, password);
-      router.push("/dashboard");
+      const stored = localStorage.getItem("crm_user");
+      const parsed = stored ? JSON.parse(stored) : null;
+      router.push(parsed?.platformRole === "SUPER_ADMIN" ? "/platform/dashboard" : "/dashboard");
     } catch (err: any) {
       setError(
         err?.response?.data?.message || "Email ou mot de passe incorrect"

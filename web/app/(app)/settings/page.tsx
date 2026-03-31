@@ -58,10 +58,10 @@ export default function SettingsPage() {
                 <h3 className="text-sm font-semibold text-slate-900 mb-5">Photo de profil</h3>
                 <div className="flex items-center gap-5">
                   <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-xl font-bold">
-                    {getInitials(user.name)}
+                    {`${user.firstName?.[0] ?? ''}${user.lastName?.[0] ?? ''}`.toUpperCase()}
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-slate-800">{user.name}</p>
+                    <p className="text-sm font-semibold text-slate-800">{user.firstName} {user.lastName}</p>
                     <p className="text-xs text-slate-400 mt-0.5">{user.email}</p>
                     {/* <Badge variant="info" className="mt-2">{ROLE_LABELS[user.role]}</Badge> */}
                   </div>
@@ -73,12 +73,10 @@ export default function SettingsPage() {
                 <h3 className="text-sm font-semibold text-slate-900 mb-5">Informations personnelles</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {[
-                    // { label: "Prénom", value: user.firstName },
-                    // { label: "Nom", value: user.lastName },
-                    // { label: "Email", value: user.email, colSpan: true },
-                    // { label: "Territoire", value: user.territory ?? "—" },
-                    // { label: "Organisation", value: user.organizationName ?? "—" },
-                  ].map(({ label, value, colSpan }) => (
+                    { label: "Prénom", value: user.firstName },
+                    { label: "Nom", value: user.lastName },
+                    { label: "Email", value: user.email, colSpan: true },
+                  ].map(({ label, value, colSpan }: any) => (
                     <div key={label} className={colSpan ? "sm:col-span-2" : ""}>
                       <label className="text-xs font-medium text-slate-500 block mb-1.5">{label}</label>
                       <input

@@ -11,7 +11,7 @@ export default function HomePage() {
   useEffect(() => {
     if (!isLoading) {
       if (user) {
-        router.replace("/dashboard");
+        router.replace(user.platformRole === "SUPER_ADMIN" ? "/platform/dashboard" : "/dashboard");
       } else {
         router.replace("/login");
       }

@@ -6,18 +6,30 @@ import {
   type ColumnDef, type SortingState,
 } from "@tanstack/react-table";
 import { useState, useMemo } from "react";
-import { ChevronUp, ChevronDown, ChevronsUpDown, Search, ClipboardList, XCircle, Trash2 } from "lucide-react";
-import { useDeleteVisit, useUpdateVisit } from "@/hooks/useApi";
+import { ChevronUp, ChevronDown, ChevronsUpDown, Search, ClipboardList, Trash2, CheckCircle2, XCircle, Clock } from "lucide-react";
+import { useDeleteVisit, useCancelVisit, useValidateVisit } from "@/hooks/useApi";
+import { useAuth } from "@/contexts/AuthContext";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 
 // ─── Status config ────────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<string, { label: string; style: string }> = {
-  PLANNED:   { label: "Planifiée",  style: "bg-amber-100 text-amber-700 border border-amber-200" },
-  COMPLETED: { label: "Effectuée",  style: "bg-emerald-100 text-emerald-700 border border-emerald-200" },
-  CANCELLED: { label: "Annulée",    style: "bg-slate-100 text-slate-500 border border-slate-200" },
+  PENDING_VALIDATION: { label: "En attente",  style: "bg-amber-100 text-amber-700 border border-amber-200" },
+  APPROVED:          { label: "Validée",      style: "bg-blue-100 text-blue-700 border border-blue-200" },
+  REJECTED:          { label: "Rejetée",      style: "bg-red-100 text-red-700 border border-red-200" },
+  COMPLETED:         { label: "Effectuée",    style: "bg-emerald-100 text-emerald-700 border border-emerald-200" },
+  CANCELLED:         { label: "Annulée",      style: "bg-slate-100 text-slate-500 border border-slate-200" },
 };
+
+const STATUS_FILTERS = [
+  { value: "",                   label: "Toutes" },
+  { value: "PENDING_VALIDATION", label: "En attente validation" },
+  { value: "APPROVED",           label: "Validées" },
+  { value: "COMPLETED",          label: "Effectuées" },
+  { value: "CANCELLED",          label: "Annulées" },
+  { value: "REJECTED",           label: "Rejetées" },
+];
 
 function distByType(distributions: any[], type: string) {
   return distributions
@@ -25,11 +37,129 @@ function distByType(distributions: any[], type: string) {
     .reduce((s: number, d: any) => s + d.quantity, 0);
 }
 
+// ─── Row Actions (role-aware) ─────────────────────────────────────────────────
+
+function RowActions({ visit, onReport }: { visit: any; onReport: (v: any) => void }) {
+  const { user } = useAuth();
+  const del = useDeleteVisit();
+  const cancel = useCancelVisit();
+  const validate = useValidateVisit();
+  const businessRole = user?.businessRole;
+
+  const status = visit.status as string;
+  const isOwner = visit.delegateId === user?.orgUserId;
+
+  return (
+    <div className="flex items-center gap-1.5">
+      {/* DSM: validate pending visits from delegates (not their own) */}
+      {businessRole === "DSM" && status === "PENDING_VALIDATION" && !isOwner && (
+        <>
+          <button
+            onClick={() => validate.mutate({ id: visit.id, data: { action: "approve" } })}
+            disabled={validate.isPending}
+            title="Approuver"
+            className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors disabled:opacity-50"
+          >
+            <CheckCircle2 size={12} />
+            Approuver
+          </button>
+          <button
+            onClick={() => {
+              const reason = prompt("Raison du rejet (optionnel):");
+              validate.mutate({ id: visit.id, data: { action: "reject", rejectionReason: reason ?? undefined } });
+            }}
+            disabled={validate.isPending}
+            title="Rejeter"
+            className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg font-medium bg-red-50 text-red-700 hover:bg-red-100 transition-colors disabled:opacity-50"
+          >
+            <XCircle size={12} />
+            Rejeter
+          </button>
+        </>
+      )}
+
+      {/* Delegate / DSM (own): show pending status */}
+      {status === "PENDING_VALIDATION" && (businessRole === "DELEGATE" || (businessRole === "DSM" && isOwner)) && (
+        <span className="flex items-center gap-1 text-xs text-amber-600 px-2 py-1 bg-amber-50 rounded-lg">
+          <Clock size={12} />
+          En attente
+        </span>
+      )}
+
+      {/* Report button for APPROVED visits */}
+      {status === "APPROVED" && (businessRole === "DELEGATE" || businessRole === "DSM") && (
+        <button
+          onClick={() => onReport(visit)}
+          title="Soumettre le rapport"
+          className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg font-medium bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors"
+        >
+          <ClipboardList size={12} />
+          Rapport
+        </button>
+      )}
+
+      {/* View completed report */}
+      {status === "COMPLETED" && (
+        <button
+          onClick={() => onReport(visit)}
+          title="Voir le rapport"
+          className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg font-medium bg-slate-50 text-slate-600 hover:bg-slate-100 transition-colors"
+        >
+          <ClipboardList size={12} />
+          Voir
+        </button>
+      )}
+
+      {/* Show rejection reason inline */}
+      {status === "REJECTED" && visit.rejectionReason && (
+        <span className="text-xs text-slate-400 italic max-w-[120px] truncate" title={visit.rejectionReason}>
+          {visit.rejectionReason}
+        </span>
+      )}
+
+      {/* Cancel — for owning delegate/DSM on PENDING or APPROVED */}
+      {(status === "PENDING_VALIDATION" || status === "APPROVED") &&
+        (businessRole === "DELEGATE" || businessRole === "DSM") && isOwner && (
+        <button
+          onClick={() => { if (confirm("Annuler cette visite ?")) cancel.mutate(visit.id); }}
+          title="Annuler la visite"
+          className="text-slate-300 hover:text-amber-500 transition-colors p-1"
+          disabled={cancel.isPending}
+        >
+          <XCircle size={15} />
+        </button>
+      )}
+
+      {/* DSM can also cancel their team's visits */}
+      {(status === "PENDING_VALIDATION" || status === "APPROVED") &&
+        businessRole === "DSM" && !isOwner && (
+        <button
+          onClick={() => { if (confirm("Annuler cette visite ?")) cancel.mutate(visit.id); }}
+          title="Annuler"
+          className="text-slate-300 hover:text-amber-500 transition-colors p-1"
+          disabled={cancel.isPending}
+        >
+          <XCircle size={15} />
+        </button>
+      )}
+
+      {/* Delete — DELEGATE own or DSM */}
+      {(businessRole === "DELEGATE" && isOwner) || businessRole === "DSM" || businessRole === "NSM" ? (
+        <button
+          onClick={() => { if (confirm("Supprimer cette visite ?")) del.mutate(visit.id); }}
+          title="Supprimer"
+          className="text-slate-300 hover:text-red-500 transition-colors p-1"
+        >
+          <Trash2 size={14} />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 // ─── Columns ──────────────────────────────────────────────────────────────────
 
-function buildColumns(
-  onReport: (visit: any) => void,
-): ColumnDef<any>[] {
+function buildColumns(onReport: (visit: any) => void): ColumnDef<any>[] {
   return [
     {
       id: "status",
@@ -37,7 +167,7 @@ function buildColumns(
       accessorFn: (row) => row.status,
       cell: ({ getValue }) => {
         const s = getValue() as string;
-        const cfg = STATUS_CONFIG[s] ?? STATUS_CONFIG.PLANNED;
+        const cfg = STATUS_CONFIG[s] ?? STATUS_CONFIG.PENDING_VALIDATION;
         return (
           <span className={`text-xs font-medium px-2.5 py-1 rounded-full whitespace-nowrap ${cfg.style}`}>
             {cfg.label}
@@ -56,7 +186,10 @@ function buildColumns(
     {
       id: "delegate",
       header: "Délégué",
-      accessorFn: (row) => row.OrganizationUser?.User?.name ?? "—",
+      accessorFn: (row) => {
+        const u = row.OrganizationUser?.User;
+        return u ? `${u.firstName} ${u.lastName}` : "—";
+      },
       cell: ({ getValue }) => <span className="text-slate-600">{getValue() as string}</span>,
     },
     {
@@ -121,52 +254,6 @@ function buildColumns(
   ];
 }
 
-function RowActions({ visit, onReport }: { visit: any; onReport: (v: any) => void }) {
-  const del = useDeleteVisit();
-  const update = useUpdateVisit();
-
-  return (
-    <div className="flex items-center gap-1.5">
-      {/* Report button — labelled differently by status */}
-      <button
-        onClick={() => onReport(visit)}
-        title={visit.status === "PLANNED" ? "Compléter le rapport" : "Voir le rapport"}
-        className={`flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg font-medium transition-colors ${
-          visit.status === "PLANNED"
-            ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-            : "bg-slate-50 text-slate-600 hover:bg-slate-100"
-        }`}
-      >
-        <ClipboardList size={12} />
-        {visit.status === "PLANNED" ? "Rapport" : "Voir"}
-      </button>
-
-      {/* Cancel — only for PLANNED */}
-      {visit.status === "PLANNED" && (
-        <button
-          onClick={() => {
-            if (confirm("Annuler cette visite ?"))
-              update.mutate({ id: visit.id, data: { status: "CANCELLED" } });
-          }}
-          title="Annuler la visite"
-          className="text-slate-300 hover:text-amber-500 transition-colors p-1"
-        >
-          <XCircle size={15} />
-        </button>
-      )}
-
-      {/* Delete */}
-      <button
-        onClick={() => { if (confirm("Supprimer cette visite ?")) del.mutate(visit.id); }}
-        title="Supprimer"
-        className="text-slate-300 hover:text-red-500 transition-colors p-1"
-      >
-        <Trash2 size={14} />
-      </button>
-    </div>
-  );
-}
-
 // ─── Component ────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -175,6 +262,7 @@ interface Props {
 }
 
 export default function VisitTableView({ visits, onOpenReport }: Props) {
+  const { user } = useAuth();
   const [sorting, setSorting] = useState<SortingState>([{ id: "visitedAt", desc: true }]);
   const [globalFilter, setGlobalFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -198,9 +286,11 @@ export default function VisitTableView({ visits, onOpenReport }: Props) {
   });
 
   const counts = useMemo(() => ({
-    PLANNED:   visits.filter((v) => v.status === "PLANNED").length,
-    COMPLETED: visits.filter((v) => v.status === "COMPLETED").length,
-    CANCELLED: visits.filter((v) => v.status === "CANCELLED").length,
+    PENDING_VALIDATION: visits.filter((v) => v.status === "PENDING_VALIDATION").length,
+    APPROVED:           visits.filter((v) => v.status === "APPROVED").length,
+    COMPLETED:          visits.filter((v) => v.status === "COMPLETED").length,
+    CANCELLED:          visits.filter((v) => v.status === "CANCELLED").length,
+    REJECTED:           visits.filter((v) => v.status === "REJECTED").length,
   }), [visits]);
 
   return (
@@ -218,25 +308,27 @@ export default function VisitTableView({ visits, onOpenReport }: Props) {
         </div>
 
         {/* Status filter pills */}
-        <div className="flex items-center gap-1.5">
-          {[
-            { value: "", label: `Toutes (${visits.length})` },
-            { value: "PLANNED",   label: `Planifiées (${counts.PLANNED})` },
-            { value: "COMPLETED", label: `Effectuées (${counts.COMPLETED})` },
-            { value: "CANCELLED", label: `Annulées (${counts.CANCELLED})` },
-          ].map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => setStatusFilter(opt.value)}
-              className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all ${
-                statusFilter === opt.value
-                  ? "bg-blue-600 text-white"
-                  : "bg-white border border-slate-200 text-slate-600 hover:border-slate-300"
-              }`}
-            >
-              {opt.label}
-            </button>
-          ))}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {STATUS_FILTERS.map((opt) => {
+            const count = opt.value ? counts[opt.value as keyof typeof counts] ?? 0 : visits.length;
+            return (
+              <button
+                key={opt.value}
+                onClick={() => setStatusFilter(opt.value)}
+                className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all ${
+                  statusFilter === opt.value
+                    ? "bg-blue-600 text-white"
+                    : "bg-white border border-slate-200 text-slate-600 hover:border-slate-300"
+                }`}
+              >
+                {opt.label} ({count})
+                {/* Alert dot for PENDING_VALIDATION if DSM */}
+                {opt.value === "PENDING_VALIDATION" && counts.PENDING_VALIDATION > 0 && user?.businessRole === "DSM" && (
+                  <span className="ml-1.5 inline-block w-1.5 h-1.5 bg-amber-400 rounded-full align-middle" />
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
 

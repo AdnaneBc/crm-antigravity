@@ -31,11 +31,12 @@ const SECTOR_LABELS = {
   CHU: "CHU",
 };
 
-const VISIT_STATUS_CONFIG = {
-  planned: { label: "Planifiée", cls: "warning" as const, icon: Clock },
-  completed: { label: "Effectuée", cls: "success" as const, icon: CheckCircle2 },
-  cancelled: { label: "Annulée", cls: "destructive" as const, icon: Clock },
-  postponed: { label: "Reportée", cls: "secondary" as const, icon: Clock },
+const VISIT_STATUS_CONFIG: Record<string, { label: string; cls: "warning" | "success" | "destructive" | "secondary"; icon: any }> = {
+  PENDING_VALIDATION: { label: "En attente", cls: "warning" as const, icon: Clock },
+  APPROVED:           { label: "Validée",    cls: "success" as const, icon: CheckCircle2 },
+  COMPLETED:          { label: "Effectuée",  cls: "success" as const, icon: CheckCircle2 },
+  CANCELLED:          { label: "Annulée",    cls: "destructive" as const, icon: Clock },
+  REJECTED:           { label: "Rejetée",    cls: "destructive" as const, icon: Clock },
 };
 
 export default function DoctorProfilePage() {
@@ -122,7 +123,7 @@ export default function DoctorProfilePage() {
         <div className="grid grid-cols-3 gap-4">
           {[
             { label: "Total visites", value: visits.length, icon: CalendarCheck, color: "blue" },
-            { label: "Visites effectuées", value: visits.filter((v) => v.status === "completed").length, icon: CheckCircle2, color: "green" },
+            { label: "Visites effectuées", value: visits.filter((v) => v.status === "COMPLETED").length, icon: CheckCircle2, color: "green" },
             { label: "Échantillons reçus", value: samples.reduce((a, s) => a + s.quantity, 0), icon: FlaskConical, color: "purple" },
           ].map(({ label, value, icon: Icon, color }) => (
             <div key={label} className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 text-center">
@@ -158,8 +159,9 @@ export default function DoctorProfilePage() {
               return (
                 <div key={visit.id} className="px-5 py-4 flex items-start gap-4 hover:bg-slate-50/60 transition-colors">
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                    visit.status === "completed" ? "bg-emerald-50 text-emerald-600" :
-                    visit.status === "planned" ? "bg-amber-50 text-amber-600" :
+                    visit.status === "COMPLETED" ? "bg-emerald-50 text-emerald-600" :
+                    visit.status === "APPROVED"  ? "bg-blue-50 text-blue-600" :
+                    visit.status === "PENDING_VALIDATION" ? "bg-amber-50 text-amber-600" :
                     "bg-slate-100 text-slate-400"
                   }`}>
                     <Icon size={14} />

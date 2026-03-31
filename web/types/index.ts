@@ -63,7 +63,12 @@ export interface Doctor {
 
 // Visit
 export type VisitType = "clinic" | "hospital" | "congress" | "pharmacy";
-export type VisitStatus = "planned" | "completed" | "cancelled" | "postponed";
+export type VisitStatus =
+  | "PENDING_VALIDATION"
+  | "APPROVED"
+  | "REJECTED"
+  | "COMPLETED"
+  | "CANCELLED";
 
 export interface Visit {
   id: string;
@@ -73,14 +78,43 @@ export interface Visit {
   userId: string;
   delegateName?: string;
   visitDate: string;
+  visitedAt: string;
   visitType: VisitType;
   status: VisitStatus;
   notes?: string;
+  description?: string;
   feedback?: string;
   productsDiscussed?: string[];
   nextVisitDate?: string;
+  validatedById?: string;
+  validatedAt?: string;
+  rejectionReason?: string;
+  completedAt?: string;
   organizationId: string;
   createdAt: string;
+}
+
+// Promotional Item
+export type PromoItemType = "SAMPLE" | "EMG" | "GADGET";
+
+export interface PromoItem {
+  id: string;
+  organizationId: string;
+  name: string;
+  type: PromoItemType;
+  totalStock: number;
+  minStockLevel: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StockAlert {
+  id: string;
+  name: string;
+  type: PromoItemType;
+  totalStock: number;
+  minStockLevel: number;
+  isZero: boolean;
 }
 
 // Product
