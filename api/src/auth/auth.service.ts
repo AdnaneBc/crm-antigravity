@@ -40,6 +40,8 @@ export class AuthService {
     const payload = {
       sub: user.id,
       email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
       platformRole: user.platformRole,
       orgUserId: orgUser?.id,
       organizationId: orgUser?.organizationId,
@@ -56,7 +58,8 @@ export class AuthService {
       user: {
         id: user.id,
         email: user.email,
-        name: user.name,
+        firstName: user.firstName,
+        lastName: user.lastName,
         platformRole: user.platformRole,
         orgUserId: orgUser?.id,
         organizationId: orgUser?.organizationId,
@@ -87,7 +90,8 @@ export class AuthService {
       select: {
         id: true,
         email: true,
-        name: true,
+        firstName: true,
+        lastName: true,
         platformRole: true,
         phone: true,
         address: true,

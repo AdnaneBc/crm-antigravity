@@ -15,7 +15,11 @@ export class AnalyticsService {
         this.prisma.visit.count({ where: { organizationId: orgId, visitedAt: { gte: startOfMonth } } }),
         this.prisma.doctor.count({ where: { organizationId: orgId } }),
         this.prisma.visitDistribution.aggregate({
-          where: { organizationId: orgId, createdAt: { gte: startOfMonth } },
+          where: {
+            organizationId: orgId,
+            createdAt: { gte: startOfMonth },
+            PromotionalItem: { type: { in: ['EMG', 'GADGET'] as any } },
+          },
           _sum: { quantity: true },
         }),
         this.prisma.organizationUser.count({
@@ -33,21 +37,23 @@ export class AnalyticsService {
   }
 
   async delegatePerformance(orgId: string) {
-    // Use raw aggregation via separate queries to avoid TypeScript include issues
     const delegates = await this.prisma.organizationUser.findMany({
       where: { organizationId: orgId, businessRole: 'DELEGATE', isActive: true },
       select: {
         id: true,
         teamId: true,
-        User: { select: { name: true } },
+        fullName: true,
+        gamme: true,
+        User: { select: { firstName: true, lastName: true } },
         Team_OrganizationUser_teamIdToTeam: { select: { name: true } },
         Visit: { select: { id: true } },
       },
-    });
+    } as any) as any;
 
-    return delegates.map((d) => ({
+    return delegates.map((d: any) => ({
       id: d.id,
-      name: d.User.name,
+      name: d.fullName || `${d.User.firstName} ${d.User.lastName}`,
+      gamme: d.gamme ?? null,
       team: d.Team_OrganizationUser_teamIdToTeam?.name ?? null,
       totalVisits: d.Visit.length,
     }));
@@ -101,8 +107,12 @@ export class AnalyticsService {
   }
 
   async promoDistributionSummary(orgId: string) {
+    // Only EMG and GADGET — SAMPLE removed
     const items = await this.prisma.promotionalItem.findMany({
-      where: { organizationId: orgId },
+      where: {
+        organizationId: orgId,
+        type: { in: ['EMG', 'GADGET'] as any },
+      },
       include: {
         VisitDistribution: { select: { quantity: true } },
       },

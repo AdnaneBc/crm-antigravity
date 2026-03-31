@@ -14,13 +14,21 @@ export class UsersController {
   constructor(private service: UsersService) {}
 
   @Get()
-  findAll(@CurrentUser('organizationId') orgId: string) {
-    return this.service.findAll(orgId);
+  findAll(
+    @CurrentUser('organizationId') orgId: string,
+    @CurrentUser('orgUserId') orgUserId: string,
+    @CurrentUser('businessRole') businessRole: string,
+  ) {
+    return this.service.findAll(orgId, orgUserId, businessRole);
   }
 
   @Get('teams')
-  getTeams(@CurrentUser('organizationId') orgId: string) {
-    return this.service.getTeams(orgId);
+  getTeams(
+    @CurrentUser('organizationId') orgId: string,
+    @CurrentUser('orgUserId') orgUserId: string,
+    @CurrentUser('businessRole') businessRole: string,
+  ) {
+    return this.service.getTeams(orgId, orgUserId, businessRole);
   }
 
   @Get(':id')

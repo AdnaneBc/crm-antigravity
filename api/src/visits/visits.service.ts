@@ -22,14 +22,18 @@ import { VisitStatus } from '@prisma/client';
 export class CreateVisitDto {
   @IsString() doctorId: string;
   @IsDateString() visitedAt: string;         // the planned date
-  @IsOptional() @IsString() delegateId?: string;
   @IsOptional() @IsString() notes?: string;  // planning notes only
+  // delegateId intentionally removed — each user always plans for themselves
 }
 
 export class UpdateVisitDto {
   @IsOptional() @IsDateString() visitedAt?: string;
   @IsOptional() @IsString() notes?: string;
-  @IsOptional() @IsEnum(VisitStatus) status?: VisitStatus;
+}
+
+export class ValidateVisitDto {
+  @IsEnum(['approve', 'reject']) action: 'approve' | 'reject';
+  @IsOptional() @IsString() rejectionReason?: string;
 }
 
 export class ReportDistributionItemDto {
@@ -61,9 +65,11 @@ export class VisitsService {
       const teamIds = await this._getDsmTeamDelegateIds(orgUserId);
       where.delegateId = { in: [...teamIds, orgUserId] };
     }
+    // NSM sees all visits in the org (no additional filter)
+    // ASSISTANT sees all visits in the org (for logistics visibility)
 
     if (query?.doctorId) where.doctorId = query.doctorId;
-    if (query?.delegateId) where.delegateId = query.delegateId;
+    if (query?.delegateId && businessRole !== 'DELEGATE') where.delegateId = query.delegateId;
     if (query?.status) where.status = query.status;
 
     return this.prisma.visit.findMany({
@@ -74,13 +80,13 @@ export class VisitsService {
           select: { id: true, firstName: true, lastName: true, speciality: true, type: true },
         },
         OrganizationUser: {
-          include: { User: { select: { name: true, email: true } } },
+          include: { User: { select: { firstName: true, lastName: true, email: true } as any } },
         },
         VisitDistribution: {
           include: { PromotionalItem: { select: { id: true, name: true, type: true } } },
         },
       },
-    });
+    } as any) as any;
   }
 
   async findOne(id: string, orgId: string) {
@@ -94,7 +100,7 @@ export class VisitsService {
     });
   }
 
-  // ─── TEAM DELEGATES ───────────────────────────────────────────────────────
+  // ─── TEAM DELEGATES (DSM only) ────────────────────────────────────────────
 
   async getTeamDelegates(orgUserId: string, orgId: string) {
     return this.prisma.organizationUser.findMany({
@@ -102,14 +108,29 @@ export class VisitsService {
       select: {
         id: true,
         businessRole: true,
-        User: { select: { name: true, email: true } },
+        User: { select: { firstName: true, lastName: true, email: true } as any },
         Team_OrganizationUser_teamIdToTeam: { select: { id: true, name: true } },
       },
       orderBy: { createdAt: 'asc' },
-    });
+    } as any) as any;
   }
 
-  // ─── CREATE (planning phase) ───────────────────────────────────────────────
+  // ─── PENDING VALIDATION COUNT (for DSM alert badge) ───────────────────────
+
+  async getPendingValidationCount(orgUserId: string, orgId: string, businessRole: string) {
+    if (businessRole !== 'DSM') return { count: 0 };
+    const delegateIds = await this._getDsmTeamDelegateIds(orgUserId);
+    const count = await this.prisma.visit.count({
+      where: {
+        organizationId: orgId,
+        status: 'PENDING_VALIDATION' as any,
+        delegateId: { in: delegateIds },
+      },
+    });
+    return { count };
+  }
+
+  // ─── CREATE (planning phase — always PENDING_VALIDATION) ──────────────────
 
   async create(
     dto: CreateVisitDto,
@@ -117,20 +138,16 @@ export class VisitsService {
     orgId: string,
     businessRole: string,
   ) {
-    let resolvedDelegateId: string;
-
-    if (businessRole === 'DELEGATE') {
-      resolvedDelegateId = orgUserId;
-    } else if (businessRole === 'DSM') {
-      if (!dto.delegateId) {
-        resolvedDelegateId = orgUserId;
-      } else {
-        await this._assertDelegateInDsmTeam(orgUserId, dto.delegateId);
-        resolvedDelegateId = dto.delegateId;
-      }
-    } else {
-      resolvedDelegateId = dto.delegateId ?? orgUserId;
+    // NSM and ASSISTANT cannot plan visits
+    if (businessRole === 'NSM') {
+      throw new ForbiddenException('Le NSM ne peut pas planifier de visites');
     }
+    if (businessRole === 'ASSISTANT') {
+      throw new ForbiddenException("L'assistant ne peut pas planifier de visites");
+    }
+
+    // DELEGATE and DSM always plan for themselves
+    const resolvedDelegateId = orgUserId;
 
     return this.prisma.visit.create({
       data: {
@@ -138,18 +155,64 @@ export class VisitsService {
         delegateId: resolvedDelegateId,
         doctorId: dto.doctorId,
         visitedAt: new Date(dto.visitedAt),
-        status: 'PLANNED',
+        status: 'PENDING_VALIDATION' as any,
         notes: dto.notes,
         updatedAt: new Date(),
       },
       include: {
         doctor: { select: { firstName: true, lastName: true } },
-        OrganizationUser: { include: { User: { select: { name: true } } } },
+        OrganizationUser: { include: { User: { select: { firstName: true, lastName: true } as any } } },
       },
-    });
+    } as any) as any;
   }
 
-  // ─── SUBMIT REPORT (reporting phase) ──────────────────────────────────────
+  // ─── VALIDATE (DSM approves or rejects a delegate's visit) ────────────────
+
+  async validate(
+    id: string,
+    dto: ValidateVisitDto,
+    orgUserId: string,
+    orgId: string,
+    businessRole: string,
+  ) {
+    if (businessRole !== 'DSM') {
+      throw new ForbiddenException('Seul un DSM peut valider ou rejeter une visite');
+    }
+
+    const visit = await this.prisma.visit.findFirst({ where: { id, organizationId: orgId } });
+    if (!visit) throw new NotFoundException('Visite introuvable');
+
+    if ((visit.status as any) !== 'PENDING_VALIDATION') {
+      throw new BadRequestException(
+        `Impossible de valider une visite avec le statut "${visit.status}"`,
+      );
+    }
+
+    // DSM can only validate visits belonging to delegates in their team
+    // (they cannot validate their own visits through this endpoint — they always self-approve)
+    if (visit.delegateId !== orgUserId) {
+      await this._assertDelegateInDsmTeam(orgUserId, visit.delegateId);
+    }
+
+    const newStatus: any = dto.action === 'approve' ? 'APPROVED' : 'REJECTED';
+
+    return this.prisma.visit.update({
+      where: { id },
+      data: {
+        status: newStatus,
+        validatedById: orgUserId,
+        validatedAt: new Date(),
+        rejectionReason: dto.action === 'reject' ? (dto.rejectionReason ?? null) : null,
+        updatedAt: new Date(),
+      } as any,
+      include: {
+        doctor: { select: { firstName: true, lastName: true } },
+        OrganizationUser: { include: { User: { select: { firstName: true, lastName: true } as any } } },
+      },
+    } as any) as any;
+  }
+
+  // ─── SUBMIT REPORT (reporting phase — only for APPROVED visits) ────────────
 
   async submitReport(
     id: string,
@@ -158,21 +221,38 @@ export class VisitsService {
     orgId: string,
     businessRole: string,
   ) {
-    const visit = await this.prisma.visit.findFirst({ where: { id, organizationId: orgId } });
-    if (!visit) throw new NotFoundException('Visite introuvable');
-    if (visit.status === 'COMPLETED') {
-      throw new ConflictException('Un rapport a déjà été soumis pour cette visite');
+    if (businessRole === 'NSM') {
+      throw new ForbiddenException('Le NSM ne peut pas soumettre de rapport');
     }
-    if (visit.status === 'CANCELLED') {
-      throw new BadRequestException('Impossible de rapporter une visite annulée');
+    if (businessRole === 'ASSISTANT') {
+      throw new ForbiddenException("L'assistant ne peut pas soumettre de rapport");
     }
 
-    // Authorization check
+    const visit = await this.prisma.visit.findFirst({ where: { id, organizationId: orgId } });
+    if (!visit) throw new NotFoundException('Visite introuvable');
+
+    if ((visit.status as any) === 'COMPLETED') {
+      throw new ConflictException('Un rapport a déjà été soumis pour cette visite');
+    }
+    if ((visit.status as any) === 'CANCELLED') {
+      throw new BadRequestException('Impossible de rapporter une visite annulée');
+    }
+    if ((visit.status as any) === 'REJECTED') {
+      throw new BadRequestException('Impossible de rapporter une visite rejetée');
+    }
+    if ((visit.status as any) === 'PENDING_VALIDATION') {
+      throw new BadRequestException(
+        'Cette visite est en attente de validation. Elle doit être approuvée avant de soumettre un rapport.',
+      );
+    }
+    // At this point, status must be APPROVED
+
+    // Authorization: only the delegate who owns the visit (or themselves if DSM)
     if (businessRole === 'DELEGATE' && visit.delegateId !== orgUserId) {
       throw new ForbiddenException('Vous ne pouvez soumettre un rapport que pour vos propres visites');
     }
     if (businessRole === 'DSM' && visit.delegateId !== orgUserId) {
-      await this._assertDelegateInDsmTeam(orgUserId, visit.delegateId);
+      throw new ForbiddenException('Le DSM ne peut soumettre un rapport que pour ses propres visites');
     }
 
     const distributions = dto.distributions?.filter((d) => d.quantity > 0) ?? [];
@@ -191,9 +271,9 @@ export class VisitsService {
     }
 
     // Transactional update
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       // 1. Update visit to COMPLETED + add report fields
-      const updated = await tx.visit.update({
+      const updated = await (tx.visit.update as any)({
         where: { id },
         data: {
           status: 'COMPLETED',
@@ -204,7 +284,7 @@ export class VisitsService {
         },
         include: {
           doctor: { select: { firstName: true, lastName: true } },
-          OrganizationUser: { include: { User: { select: { name: true } } } },
+          OrganizationUser: { include: { User: { select: { firstName: true, lastName: true } as any } } },
           VisitDistribution: { include: { PromotionalItem: true } },
         },
       });
@@ -226,19 +306,28 @@ export class VisitsService {
         });
       }
 
-      // 3. Deduct from StockAllocation
+      // 3. Deduct from StockAllocation AND from PromotionalItem.totalStock
       for (const d of distributions) {
         await tx.stockAllocation.updateMany({
           where: { delegateId: visit.delegateId, itemId: d.itemId },
           data: { quantity: { decrement: d.quantity }, updatedAt: new Date() },
         });
+        await tx.promotionalItem.update({
+          where: { id: d.itemId },
+          data: { totalStock: { decrement: d.quantity }, updatedAt: new Date() },
+        });
       }
 
       return updated;
     });
+
+    // 4. Check stock alerts after transaction (non-blocking)
+    const alerts = await this._getStockAlerts(orgId);
+
+    return { ...result, stockAlerts: alerts };
   }
 
-  // ─── UPDATE (planning fields only) ────────────────────────────────────────
+  // ─── UPDATE (planning fields only — PENDING_VALIDATION or APPROVED only) ──
 
   async update(
     id: string,
@@ -249,14 +338,20 @@ export class VisitsService {
   ) {
     const visit = await this.prisma.visit.findFirst({ where: { id, organizationId: orgId } });
     if (!visit) throw new NotFoundException('Visite introuvable');
-    if (visit.status === 'COMPLETED') {
+
+    if ((visit.status as any) === 'COMPLETED') {
       throw new BadRequestException('Une visite complétée ne peut plus être modifiée');
     }
+    if ((visit.status as any) === 'REJECTED' || visit.status === 'CANCELLED') {
+      throw new BadRequestException('Cette visite ne peut plus être modifiée');
+    }
+
+    // Only the owning delegate (or the owning DSM) can update their visit
     if (businessRole === 'DELEGATE' && visit.delegateId !== orgUserId) {
       throw new ForbiddenException('Vous ne pouvez modifier que vos propres visites');
     }
     if (businessRole === 'DSM' && visit.delegateId !== orgUserId) {
-      await this._assertDelegateInDsmTeam(orgUserId, visit.delegateId);
+      throw new ForbiddenException('Le DSM ne peut modifier que ses propres visites planifiées');
     }
 
     return this.prisma.visit.update({
@@ -264,9 +359,40 @@ export class VisitsService {
       data: {
         notes: dto.notes,
         visitedAt: dto.visitedAt ? new Date(dto.visitedAt) : undefined,
-        status: dto.status,
         updatedAt: new Date(),
       },
+    });
+  }
+
+  // ─── CANCEL ───────────────────────────────────────────────────────────────
+
+  async cancel(id: string, orgUserId: string, orgId: string, businessRole: string) {
+    const visit = await this.prisma.visit.findFirst({ where: { id, organizationId: orgId } });
+    if (!visit) throw new NotFoundException('Visite introuvable');
+
+    if ((visit.status as any) === 'COMPLETED') {
+      throw new BadRequestException('Une visite complétée ne peut pas être annulée');
+    }
+    if (visit.status === 'CANCELLED') {
+      throw new BadRequestException('Cette visite est déjà annulée');
+    }
+
+    if (businessRole === 'DELEGATE' && visit.delegateId !== orgUserId) {
+      throw new ForbiddenException('Vous ne pouvez annuler que vos propres visites');
+    }
+    if (businessRole === 'DSM') {
+      // DSM can cancel their own visits, or (as manager) their team's visits
+      if (visit.delegateId !== orgUserId) {
+        await this._assertDelegateInDsmTeam(orgUserId, visit.delegateId);
+      }
+    }
+    if (businessRole === 'NSM' || businessRole === 'ASSISTANT') {
+      throw new ForbiddenException('Vous ne pouvez pas annuler de visites');
+    }
+
+    return this.prisma.visit.update({
+      where: { id },
+      data: { status: 'CANCELLED', updatedAt: new Date() },
     });
   }
 
@@ -280,6 +406,9 @@ export class VisitsService {
     }
     if (businessRole === 'DSM' && visit.delegateId !== orgUserId) {
       await this._assertDelegateInDsmTeam(orgUserId, visit.delegateId);
+    }
+    if (businessRole === 'NSM') {
+      throw new ForbiddenException('Le NSM ne peut pas supprimer de visites');
     }
     await this.prisma.visitDistribution.deleteMany({ where: { visitId: id } });
     return this.prisma.visit.delete({ where: { id } });
@@ -302,5 +431,16 @@ export class VisitsService {
     if (!delegate) {
       throw new ForbiddenException('Ce délégué ne fait pas partie de votre équipe');
     }
+  }
+
+  private async _getStockAlerts(orgId: string) {
+    // Prisma can't compare two columns directly in WHERE, so we filter in JS
+    const items = await this.prisma.promotionalItem.findMany({
+      where: { organizationId: orgId },
+      select: { id: true, name: true, type: true, totalStock: true, minStockLevel: true } as any,
+    });
+    return (items as any[])
+      .filter((item: any) => item.minStockLevel > 0 && item.totalStock <= item.minStockLevel)
+      .map((item: any) => ({ ...item, isZero: item.totalStock === 0 }));
   }
 }

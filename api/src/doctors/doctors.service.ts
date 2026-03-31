@@ -9,8 +9,17 @@ export class CreateDoctorDto {
   @IsOptional() @IsString() speciality?: string;
   @IsEnum(DoctorType) type: DoctorType;
   @IsOptional() @IsString() sectorId?: string;
+  // Contact & Location
   @IsOptional() @IsString() address?: string;
   @IsOptional() @IsString() phone?: string;
+  @IsOptional() @IsString() city?: string;
+  // Pharma-specific fields
+  @IsOptional() @IsString() sectorName?: string;
+  @IsOptional() @IsString() sectorIMS?: string;
+  @IsOptional() @IsString() gamme?: string;
+  @IsOptional() @IsString() potential?: string;
+  @IsOptional() @IsString() lap?: string;
+  @IsOptional() @IsString() code?: string;
 }
 
 @Injectable()
@@ -29,6 +38,8 @@ export class DoctorsService {
         { firstName: { contains: query.search, mode: 'insensitive' } },
         { lastName: { contains: query.search, mode: 'insensitive' } },
         { speciality: { contains: query.search, mode: 'insensitive' } },
+        { city: { contains: query.search, mode: 'insensitive' } },
+        { code: { contains: query.search, mode: 'insensitive' } },
       ];
     }
 
@@ -52,7 +63,7 @@ export class DoctorsService {
           take: 20,
           include: {
             OrganizationUser: {
-              include: { User: { select: { name: true, email: true } } },
+              include: { User: { select: { firstName: true, lastName: true, email: true } as any } },
             },
             VisitDistribution: {
               include: { PromotionalItem: { select: { name: true, type: true } } },
@@ -77,7 +88,7 @@ export class DoctorsService {
     return this.prisma.doctor.delete({ where: { id } });
   }
 
-  // ── Sectors ──────────────────────────────────────
+  // ── Sectors ──────────────────────────────────────────────────────────────
   async getSectors(orgId: string) {
     return this.prisma.sector.findMany({
       where: { organizationId: orgId },

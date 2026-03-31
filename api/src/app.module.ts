@@ -8,6 +8,7 @@ import { VisitsModule } from './visits/visits.module';
 import { ProductsModule } from './products/products.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { OrganizationsModule } from './organizations/organizations.module';
+import { PlatformAdminModule } from './platform-admin/platform-admin.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { OrganizationsModule } from './organizations/organizations.module';
     ProductsModule,
     AnalyticsModule,
     OrganizationsModule,
+    PlatformAdminModule,
   ],
 })
 export class AppModule {}

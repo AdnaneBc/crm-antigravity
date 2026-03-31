@@ -8,6 +8,7 @@ import {
   VisitsService,
   CreateVisitDto,
   UpdateVisitDto,
+  ValidateVisitDto,
   SubmitReportDto,
 } from './visits.service';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -19,6 +20,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 export class VisitsController {
   constructor(private service: VisitsService) {}
 
+  /** GET /visits — List visits (role-scoped) */
   @Get()
   findAll(
     @CurrentUser('organizationId') orgId: string,
@@ -29,7 +31,7 @@ export class VisitsController {
     return this.service.findAll(orgId, orgUserId, businessRole ?? '', query);
   }
 
-  /** GET /visits/team-delegates — DSM gets their team's delegates for assignment */
+  /** GET /visits/team-delegates — DSM gets their team's delegates */
   @Get('team-delegates')
   teamDelegates(
     @CurrentUser('orgUserId') orgUserId: string,
@@ -38,6 +40,17 @@ export class VisitsController {
     return this.service.getTeamDelegates(orgUserId, orgId);
   }
 
+  /** GET /visits/pending-count — DSM alert badge count */
+  @Get('pending-count')
+  pendingCount(
+    @CurrentUser('orgUserId') orgUserId: string,
+    @CurrentUser('organizationId') orgId: string,
+    @CurrentUser('businessRole') businessRole: string,
+  ) {
+    return this.service.getPendingValidationCount(orgUserId, orgId, businessRole ?? '');
+  }
+
+  /** GET /visits/:id */
   @Get(':id')
   findOne(
     @Param('id') id: string,
@@ -46,7 +59,7 @@ export class VisitsController {
     return this.service.findOne(id, orgId);
   }
 
-  /** POST /visits — Planning phase only (no distributions) */
+  /** POST /visits — Planning phase (status always becomes PENDING_VALIDATION) */
   @Post()
   create(
     @Body() dto: CreateVisitDto,
@@ -58,9 +71,24 @@ export class VisitsController {
   }
 
   /**
+   * PATCH /visits/:id/validate
+   * DSM only — approve or reject a delegate's PENDING_VALIDATION visit.
+   */
+  @Patch(':id/validate')
+  validate(
+    @Param('id') id: string,
+    @Body() dto: ValidateVisitDto,
+    @CurrentUser('orgUserId') orgUserId: string,
+    @CurrentUser('organizationId') orgId: string,
+    @CurrentUser('businessRole') businessRole: string,
+  ) {
+    return this.service.validate(id, dto, orgUserId, orgId, businessRole ?? '');
+  }
+
+  /**
    * POST /visits/:id/report — Reporting phase
-   * Records what happened, distributes promotional items, deducts stock.
-   * Only valid when status === PLANNED.
+   * Only valid when status === APPROVED.
+   * Deducts stock and sets status to COMPLETED.
    */
   @Post(':id/report')
   submitReport(
@@ -73,7 +101,7 @@ export class VisitsController {
     return this.service.submitReport(id, dto, orgUserId, orgId, businessRole ?? '');
   }
 
-  /** PATCH /visits/:id — Update planning fields or cancel */
+  /** PATCH /visits/:id — Update planning fields (date, notes) */
   @Patch(':id')
   update(
     @Param('id') id: string,
@@ -85,6 +113,18 @@ export class VisitsController {
     return this.service.update(id, dto, orgUserId, orgId, businessRole ?? '');
   }
 
+  /** PATCH /visits/:id/cancel — Cancel a visit */
+  @Patch(':id/cancel')
+  cancel(
+    @Param('id') id: string,
+    @CurrentUser('orgUserId') orgUserId: string,
+    @CurrentUser('organizationId') orgId: string,
+    @CurrentUser('businessRole') businessRole: string,
+  ) {
+    return this.service.cancel(id, orgUserId, orgId, businessRole ?? '');
+  }
+
+  /** DELETE /visits/:id */
   @Delete(':id')
   remove(
     @Param('id') id: string,

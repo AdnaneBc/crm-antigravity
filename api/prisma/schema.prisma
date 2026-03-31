@@ -8,29 +8,34 @@ datasource db {
 }
 
 model Organization {
-  id                String              @id @default(cuid())
-  name              String
-  isActive          Boolean             @default(true)
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
-  logoUrl           String?
-  primaryColor      String?
-  secondaryColor    String?
-  doctors           Doctor[]
-  OrganizationUser  OrganizationUser[]
-  PromotionalItem   PromotionalItem[]
-  Sector            Sector[]
-  StockAllocation   StockAllocation[]
-  Team              Team[]
-  visits            Visit[]
-  VisitDistribution VisitDistribution[]
+  id                     String                   @id @default(cuid())
+  name                   String
+  isActive               Boolean                  @default(true)
+  suspendedAt            DateTime?
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
+  logoUrl                String?
+  primaryColor           String?
+  secondaryColor         String?
+  doctors                Doctor[]
+  OrganizationUser       OrganizationUser[]
+  PromotionalItem        PromotionalItem[]
+  Sector                 Sector[]
+  StockAllocation        StockAllocation[]
+  Team                   Team[]
+  visits                 Visit[]
+  VisitDistribution      VisitDistribution[]
+  OrganizationSubscription OrganizationSubscription[]
+  Invoice                Invoice[]
+  AuditLog               AuditLog[]
 }
 
 model User {
   id               String             @id @default(cuid())
   email            String             @unique
   passwordHash     String
-  name             String
+  firstName        String
+  lastName         String
   isActive         Boolean            @default(true)
   platformRole     PlatformRole?
   createdAt        DateTime           @default(now())
@@ -39,6 +44,7 @@ model User {
   phone            String?
   profileImageUrl  String?
   OrganizationUser OrganizationUser[]
+  AuditLog         AuditLog[]
 }
 
 model Doctor {
@@ -53,6 +59,13 @@ model Doctor {
   updatedAt      DateTime     @updatedAt
   address        String?
   phone          String?
+  city           String?
+  sectorName     String?
+  sectorIMS      String?
+  gamme          String?
+  potential      String?
+  lap            String?
+  code           String?
   organization   Organization @relation(fields: [organizationId], references: [id])
   Sector         Sector?      @relation(fields: [sectorId], references: [id])
   visits         Visit[]
@@ -64,11 +77,14 @@ model Visit {
   doctorId          String
   delegateId        String
   visitedAt         DateTime
-  status            VisitStatus         @default(PLANNED)
-  notes             String?             // planning notes
-  description       String?             // report: what happened
-  nextVisitDate     DateTime?           // report: next planned visit
-  completedAt       DateTime?           // set when report submitted
+  status            VisitStatus         @default(PENDING_VALIDATION)
+  notes             String?
+  description       String?
+  nextVisitDate     DateTime?
+  completedAt       DateTime?
+  validatedById     String?
+  validatedAt       DateTime?
+  rejectionReason   String?
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
   OrganizationUser  OrganizationUser    @relation(fields: [delegateId], references: [id])
@@ -88,6 +104,12 @@ model OrganizationUser {
   isActive                              Boolean            @default(true)
   createdAt                             DateTime           @default(now())
   updatedAt                             DateTime
+  fullName                              String?
+  gender                                String?
+  phone                                 String?
+  city                                  String?
+  gamme                                 String?
+  assignedSectors                       String[]           @default([])
   OrganizationUser                      OrganizationUser?  @relation("OrganizationUserToOrganizationUser", fields: [managerId], references: [id])
   other_OrganizationUser                OrganizationUser[] @relation("OrganizationUserToOrganizationUser")
   Organization                          Organization       @relation(fields: [organizationId], references: [id])
@@ -105,8 +127,11 @@ model PromotionalItem {
   id                String              @id
   organizationId    String
   name              String
+  description       String?
   type              PromoItemType
+  gamme             String?
   totalStock        Int                 @default(0)
+  minStockLevel     Int                 @default(0)
   createdAt         DateTime            @default(now())
   updatedAt         DateTime
   Organization      Organization        @relation(fields: [organizationId], references: [id])
@@ -166,6 +191,71 @@ model VisitDistribution {
   @@unique([visitId, itemId])
 }
 
+// ── Billing & Subscriptions ───────────────────────────────────────────────────
+
+model SubscriptionPlan {
+  id                     String                   @id @default(cuid())
+  name                   String
+  description            String?
+  price                  Float
+  interval               BillingInterval          @default(MONTHLY)
+  maxUsers               Int                      @default(50)
+  maxDoctors             Int                      @default(500)
+  features               String[]                 @default([])
+  isActive               Boolean                  @default(true)
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
+  OrganizationSubscription OrganizationSubscription[]
+}
+
+model OrganizationSubscription {
+  id             String             @id @default(cuid())
+  organizationId String
+  planId         String
+  status         SubscriptionStatus @default(ACTIVE)
+  startDate      DateTime
+  endDate        DateTime?
+  trialEndsAt    DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  Organization   Organization       @relation(fields: [organizationId], references: [id])
+  Plan           SubscriptionPlan   @relation(fields: [planId], references: [id])
+  Invoice        Invoice[]
+}
+
+model Invoice {
+  id             String                    @id @default(cuid())
+  organizationId String
+  subscriptionId String
+  amount         Float
+  currency       String                    @default("EUR")
+  status         InvoiceStatus             @default(PENDING)
+  dueDate        DateTime
+  paidAt         DateTime?
+  notes          String?
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+  Organization   Organization              @relation(fields: [organizationId], references: [id])
+  Subscription   OrganizationSubscription  @relation(fields: [subscriptionId], references: [id])
+}
+
+// ── Audit Log ─────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id             String       @id @default(cuid())
+  organizationId String?
+  userId         String
+  action         String
+  resource       String
+  resourceId     String?
+  meta           Json?
+  createdAt      DateTime     @default(now())
+  Organization   Organization? @relation(fields: [organizationId], references: [id])
+  User           User          @relation(fields: [userId], references: [id])
+}
+
+// ── Enums ─────────────────────────────────────────────────────────────────────
+
 enum BusinessRole {
   NSM
   DSM
@@ -189,13 +279,33 @@ enum PlatformRole {
 }
 
 enum VisitStatus {
-  PLANNED
+  PENDING_VALIDATION
+  APPROVED
+  REJECTED
   COMPLETED
   CANCELLED
 }
 
 enum PromoItemType {
-  SAMPLE
   EMG
   GADGET
+}
+
+enum BillingInterval {
+  MONTHLY
+  YEARLY
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  SUSPENDED
+  CANCELLED
+  TRIAL
+}
+
+enum InvoiceStatus {
+  PENDING
+  PAID
+  OVERDUE
+  CANCELLED
 }

@@ -31,7 +31,7 @@ export class OrganizationsService {
         _count: {
           select: { OrganizationUser: true, doctors: true, visits: true, PromotionalItem: true, Team: true, Sector: true },
         },
-        Team: { include: { OrganizationUser_Team_managerIdToOrganizationUser: { include: { User: { select: { name: true } } } } } },
+        Team: { include: { OrganizationUser_Team_managerIdToOrganizationUser: { include: { User: { select: { firstName: true, lastName: true } as any } } } } },
         Sector: true,
       },
     });
