@@ -88,7 +88,7 @@ let DoctorsService = class DoctorsService {
     constructor(prisma) {
         this.prisma = prisma;
     }
-    async findAll(orgId, query) {
+    async findAll(orgId, orgUserId, businessRole, query) {
         const where = { organizationId: orgId };
         if (query?.type)
             where.type = query.type;
@@ -102,6 +102,16 @@ let DoctorsService = class DoctorsService {
                 { city: { contains: query.search, mode: 'insensitive' } },
                 { code: { contains: query.search, mode: 'insensitive' } },
             ];
+        }
+        if (businessRole === 'DELEGATE' && orgUserId) {
+            const visitedDoctorIds = await this._getVisitedDoctorIds([orgUserId]);
+            where.id = { in: visitedDoctorIds };
+        }
+        if (businessRole === 'DSM' && orgUserId) {
+            const delegateIds = await this._getDsmTeamDelegateIds(orgUserId, orgId);
+            const allIds = [...delegateIds, orgUserId];
+            const visitedDoctorIds = await this._getVisitedDoctorIds(allIds);
+            where.id = { in: visitedDoctorIds };
         }
         return this.prisma.doctor.findMany({
             where,
@@ -148,6 +158,26 @@ let DoctorsService = class DoctorsService {
             where: { organizationId: orgId },
             include: { _count: { select: { Doctor: true } } },
         });
+    }
+    async _getVisitedDoctorIds(delegateIds) {
+        const visits = await this.prisma.visit.findMany({
+            where: { delegateId: { in: delegateIds } },
+            select: { doctorId: true },
+            distinct: ['doctorId'],
+        });
+        return visits.map((v) => v.doctorId);
+    }
+    async _getDsmTeamDelegateIds(dsmOrgUserId, orgId) {
+        const managedTeams = await this.prisma.team.findMany({
+            where: { organizationId: orgId, managerId: dsmOrgUserId },
+            select: { id: true },
+        });
+        const teamIds = managedTeams.map((t) => t.id);
+        const delegates = await this.prisma.organizationUser.findMany({
+            where: { teamId: { in: teamIds }, businessRole: 'DELEGATE', isActive: true },
+            select: { id: true },
+        });
+        return delegates.map((d) => d.id);
     }
 };
 exports.DoctorsService = DoctorsService;

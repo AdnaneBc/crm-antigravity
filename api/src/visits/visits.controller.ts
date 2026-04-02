@@ -7,6 +7,7 @@ import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import {
   VisitsService,
   CreateVisitDto,
+  BatchCreateVisitDto,
   UpdateVisitDto,
   ValidateVisitDto,
   SubmitReportDto,
@@ -59,7 +60,7 @@ export class VisitsController {
     return this.service.findOne(id, orgId);
   }
 
-  /** POST /visits — Planning phase (status always becomes PENDING_VALIDATION) */
+  /** POST /visits — Plan a single visit (DELEGATE → PENDING, DSM → APPROVED) */
   @Post()
   create(
     @Body() dto: CreateVisitDto,
@@ -68,6 +69,17 @@ export class VisitsController {
     @CurrentUser('businessRole') businessRole: string,
   ) {
     return this.service.create(dto, orgUserId, orgId, businessRole ?? '');
+  }
+
+  /** POST /visits/batch — Plan multiple visits for one day (multi-doctor) */
+  @Post('batch')
+  createBatch(
+    @Body() dto: BatchCreateVisitDto,
+    @CurrentUser('orgUserId') orgUserId: string,
+    @CurrentUser('organizationId') orgId: string,
+    @CurrentUser('businessRole') businessRole: string,
+  ) {
+    return this.service.createBatch(dto, orgUserId, orgId, businessRole ?? '');
   }
 
   /**

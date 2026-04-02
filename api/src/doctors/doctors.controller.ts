@@ -16,16 +16,18 @@ import { RolesGuard } from '../common/guards/roles.guard';
 export class DoctorsController {
   constructor(private service: DoctorsService) {}
 
-  // ── Read endpoints — all authenticated roles ──────────────────────────────
+  // ── Read endpoints — role-scoped ────────────────────────────────────────
 
   @Get()
   findAll(
     @CurrentUser('organizationId') orgId: string,
+    @CurrentUser('orgUserId') orgUserId: string,
+    @CurrentUser('businessRole') businessRole: string,
     @Query('search') search?: string,
     @Query('type') type?: string,
     @Query('sectorId') sectorId?: string,
   ) {
-    return this.service.findAll(orgId, { search, type, sectorId });
+    return this.service.findAll(orgId, orgUserId, businessRole, { search, type, sectorId });
   }
 
   @Get('sectors')

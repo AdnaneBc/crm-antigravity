@@ -9,7 +9,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.VisitsService = exports.SubmitReportDto = exports.ReportDistributionItemDto = exports.ValidateVisitDto = exports.UpdateVisitDto = exports.CreateVisitDto = void 0;
+exports.VisitsService = exports.SubmitReportDto = exports.ReportDistributionItemDto = exports.ValidateVisitDto = exports.UpdateVisitDto = exports.BatchCreateVisitDto = exports.CreateVisitDto = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
 const class_validator_1 = require("class-validator");
@@ -30,6 +30,23 @@ __decorate([
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
 ], CreateVisitDto.prototype, "notes", void 0);
+class BatchCreateVisitDto {
+}
+exports.BatchCreateVisitDto = BatchCreateVisitDto;
+__decorate([
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.IsString)({ each: true }),
+    __metadata("design:type", Array)
+], BatchCreateVisitDto.prototype, "doctorIds", void 0);
+__decorate([
+    (0, class_validator_1.IsDateString)(),
+    __metadata("design:type", String)
+], BatchCreateVisitDto.prototype, "visitedAt", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], BatchCreateVisitDto.prototype, "notes", void 0);
 class UpdateVisitDto {
 }
 exports.UpdateVisitDto = UpdateVisitDto;
@@ -100,8 +117,8 @@ let VisitsService = class VisitsService {
             where.delegateId = orgUserId;
         }
         else if (businessRole === 'DSM') {
-            const teamIds = await this._getDsmTeamDelegateIds(orgUserId);
-            where.delegateId = { in: [...teamIds, orgUserId] };
+            const teamDelegateIds = await this._getDsmTeamDelegateIdsByTeam(orgUserId, orgId);
+            where.delegateId = { in: [...teamDelegateIds, orgUserId] };
         }
         if (query?.doctorId)
             where.doctorId = query.doctorId;
@@ -109,6 +126,26 @@ let VisitsService = class VisitsService {
             where.delegateId = query.delegateId;
         if (query?.status)
             where.status = query.status;
+        if (query?.teamId) {
+            const teamMembers = await this.prisma.organizationUser.findMany({
+                where: { teamId: query.teamId, isActive: true },
+                select: { id: true },
+            });
+            const memberIds = teamMembers.map((m) => m.id);
+            if (where.delegateId?.in) {
+                where.delegateId = { in: where.delegateId.in.filter((id) => memberIds.includes(id)) };
+            }
+            else if (!where.delegateId) {
+                where.delegateId = { in: memberIds };
+            }
+        }
+        if (query?.startDate || query?.endDate) {
+            where.visitedAt = {};
+            if (query.startDate)
+                where.visitedAt.gte = new Date(query.startDate);
+            if (query.endDate)
+                where.visitedAt.lte = new Date(query.endDate);
+        }
         return this.prisma.visit.findMany({
             where,
             orderBy: { visitedAt: 'desc' },
@@ -167,15 +204,16 @@ let VisitsService = class VisitsService {
         if (businessRole === 'ASSISTANT') {
             throw new common_1.ForbiddenException("L'assistant ne peut pas planifier de visites");
         }
-        const resolvedDelegateId = orgUserId;
+        const status = businessRole === 'DSM' ? 'APPROVED' : 'PENDING_VALIDATION';
         return this.prisma.visit.create({
             data: {
                 organizationId: orgId,
-                delegateId: resolvedDelegateId,
+                delegateId: orgUserId,
                 doctorId: dto.doctorId,
                 visitedAt: new Date(dto.visitedAt),
-                status: 'PENDING_VALIDATION',
+                status: status,
                 notes: dto.notes,
+                ...(businessRole === 'DSM' ? { validatedById: orgUserId, validatedAt: new Date() } : {}),
                 updatedAt: new Date(),
             },
             include: {
@@ -183,6 +221,40 @@ let VisitsService = class VisitsService {
                 OrganizationUser: { include: { User: { select: { firstName: true, lastName: true } } } },
             },
         });
+    }
+    async createBatch(dto, orgUserId, orgId, businessRole) {
+        if (businessRole === 'NSM') {
+            throw new common_1.ForbiddenException('Le NSM ne peut pas planifier de visites');
+        }
+        if (businessRole === 'ASSISTANT') {
+            throw new common_1.ForbiddenException("L'assistant ne peut pas planifier de visites");
+        }
+        if (!dto.doctorIds?.length) {
+            throw new common_1.BadRequestException('Vous devez sélectionner au moins un médecin');
+        }
+        const status = businessRole === 'DSM' ? 'APPROVED' : 'PENDING_VALIDATION';
+        const planDate = new Date(dto.visitedAt);
+        const created = [];
+        for (const doctorId of dto.doctorIds) {
+            const visit = await this.prisma.visit.create({
+                data: {
+                    organizationId: orgId,
+                    delegateId: orgUserId,
+                    doctorId,
+                    visitedAt: planDate,
+                    status: status,
+                    notes: dto.notes,
+                    ...(businessRole === 'DSM' ? { validatedById: orgUserId, validatedAt: new Date() } : {}),
+                    updatedAt: new Date(),
+                },
+                include: {
+                    doctor: { select: { firstName: true, lastName: true } },
+                    OrganizationUser: { include: { User: { select: { firstName: true, lastName: true } } } },
+                },
+            });
+            created.push(visit);
+        }
+        return created;
     }
     async validate(id, dto, orgUserId, orgId, businessRole) {
         if (businessRole !== 'DSM') {
@@ -367,6 +439,18 @@ let VisitsService = class VisitsService {
     async _getDsmTeamDelegateIds(dsmOrgUserId) {
         const delegates = await this.prisma.organizationUser.findMany({
             where: { managerId: dsmOrgUserId, businessRole: 'DELEGATE', isActive: true },
+            select: { id: true },
+        });
+        return delegates.map((d) => d.id);
+    }
+    async _getDsmTeamDelegateIdsByTeam(dsmOrgUserId, orgId) {
+        const managedTeams = await this.prisma.team.findMany({
+            where: { organizationId: orgId, managerId: dsmOrgUserId },
+            select: { id: true },
+        });
+        const teamIds = managedTeams.map((t) => t.id);
+        const delegates = await this.prisma.organizationUser.findMany({
+            where: { teamId: { in: teamIds }, businessRole: 'DELEGATE', isActive: true },
             select: { id: true },
         });
         return delegates.map((d) => d.id);

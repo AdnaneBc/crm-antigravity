@@ -1,6 +1,6 @@
 import {
   Controller, Get, Post, Patch, Delete,
-  Body, Param, UseGuards, ForbiddenException,
+  Body, Param, Query, UseGuards, ForbiddenException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
@@ -16,11 +16,17 @@ import { RolesGuard } from '../common/guards/roles.guard';
 export class ProductsController {
   constructor(private service: ProductsService) {}
 
-  // ── Read endpoints — all authenticated roles ──────────────────────────────
+  // ── Read endpoints — role-scoped ──────────────────────────────────────────
 
   @Get()
-  findAll(@CurrentUser('organizationId') orgId: string) {
-    return this.service.findAll(orgId);
+  findAll(
+    @CurrentUser('organizationId') orgId: string,
+    @CurrentUser('orgUserId') orgUserId: string,
+    @CurrentUser('businessRole') businessRole: string,
+    @Query('search') search?: string,
+    @Query('type') type?: string,
+  ) {
+    return this.service.findAll(orgId, orgUserId, businessRole, { search, type });
   }
 
   @Get('my-stock')

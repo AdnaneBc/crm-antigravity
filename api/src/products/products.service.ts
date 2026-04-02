@@ -20,11 +20,93 @@ export class AllocateStockDto {
 export class ProductsService {
   constructor(private prisma: PrismaService) {}
 
-  // ── Promotional Items ─────────────────────────────────────────────────────
+  // ── Promotional Items — role-scoped ───────────────────────────────────────
 
-  async findAll(orgId: string) {
+  /**
+   * List promotional items — role-scoped:
+   * - DELEGATE: only items allocated to them (with own allocation qty)
+   * - DSM: all items, stock allocations scoped to their team delegates
+   * - NSM: all items, all allocations visible (excluding ASSISTANT)
+   * - ASSISTANT / ADMIN: all items with all allocations
+   */
+  async findAll(
+    orgId: string,
+    orgUserId?: string,
+    businessRole?: string,
+    query?: { search?: string; type?: string },
+  ) {
+    const where: any = { organizationId: orgId };
+    if (query?.type) where.type = query.type;
+    if (query?.search) {
+      where.OR = [
+        { name: { contains: query.search, mode: 'insensitive' } },
+        { description: { contains: query.search, mode: 'insensitive' } },
+        { gamme: { contains: query.search, mode: 'insensitive' } },
+      ];
+    }
+
+    // DELEGATE: only items they have allocations for
+    if (businessRole === 'DELEGATE' && orgUserId) {
+      return this.prisma.promotionalItem.findMany({
+        where: {
+          ...where,
+          StockAllocation: { some: { delegateId: orgUserId } },
+        },
+        orderBy: { name: 'asc' },
+        include: {
+          _count: { select: { VisitDistribution: true, StockAllocation: true } },
+          StockAllocation: {
+            where: { delegateId: orgUserId },
+            include: {
+              OrganizationUser: { include: { User: { select: { firstName: true, lastName: true } as any } } },
+            },
+          },
+        },
+      } as any) as any;
+    }
+
+    // DSM: all items, but allocations scoped to their team delegates
+    if (businessRole === 'DSM' && orgUserId) {
+      const teamDelegateIds = await this._getDsmTeamDelegateIds(orgUserId, orgId);
+      const allScopedIds = [...teamDelegateIds, orgUserId];
+
+      return this.prisma.promotionalItem.findMany({
+        where,
+        orderBy: { name: 'asc' },
+        include: {
+          _count: { select: { VisitDistribution: true, StockAllocation: true } },
+          StockAllocation: {
+            where: { delegateId: { in: allScopedIds } },
+            include: {
+              OrganizationUser: { include: { User: { select: { firstName: true, lastName: true } as any } } },
+            },
+          },
+        },
+      } as any) as any;
+    }
+
+    // NSM: all items, all allocations but exclude ASSISTANT users
+    if (businessRole === 'NSM') {
+      return this.prisma.promotionalItem.findMany({
+        where,
+        orderBy: { name: 'asc' },
+        include: {
+          _count: { select: { VisitDistribution: true, StockAllocation: true } },
+          StockAllocation: {
+            where: {
+              OrganizationUser: { businessRole: { not: 'ASSISTANT' as any } },
+            },
+            include: {
+              OrganizationUser: { include: { User: { select: { firstName: true, lastName: true } as any } } },
+            },
+          },
+        },
+      } as any) as any;
+    }
+
+    // ASSISTANT / ADMIN: all items with all allocations
     return this.prisma.promotionalItem.findMany({
-      where: { organizationId: orgId },
+      where,
       orderBy: { name: 'asc' },
       include: {
         _count: { select: { VisitDistribution: true, StockAllocation: true } },
@@ -135,5 +217,20 @@ export class ProductsService {
         minStockLevel: item.minStockLevel,
         isZero: item.totalStock === 0,
       }));
+  }
+
+  // ── Private helpers ──────────────────────────────────────────────────────
+
+  private async _getDsmTeamDelegateIds(dsmOrgUserId: string, orgId: string): Promise<string[]> {
+    const managedTeams = await this.prisma.team.findMany({
+      where: { organizationId: orgId, managerId: dsmOrgUserId },
+      select: { id: true },
+    });
+    const teamIds = managedTeams.map((t) => t.id);
+    const delegates = await this.prisma.organizationUser.findMany({
+      where: { teamId: { in: teamIds }, businessRole: 'DELEGATE', isActive: true },
+      select: { id: true },
+    });
+    return delegates.map((d) => d.id);
   }
 }

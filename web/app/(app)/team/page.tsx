@@ -125,40 +125,52 @@ export default function TeamPage() {
           </div>
         )}
 
-        {/* NSM: also show all members summary */}
-        {!isLoading && (businessRole === "NSM" || businessRole === "ASSISTANT") && members.length > 0 && (
-          <div className="mt-6">
-            <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
-              Tous les membres ({members.length})
-            </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-              {members.map((m: any) => {
-                const firstName = m.User?.firstName ?? "";
-                const lastName = m.User?.lastName ?? "";
-                const initials = `${firstName[0] ?? ""}${lastName[0] ?? ""}`.toUpperCase();
-                return (
-                  <div key={m.id} className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
-                      {initials || <User size={14} />}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium text-slate-900 text-sm truncate">{firstName} {lastName}</p>
-                      <p className="text-xs text-slate-500 truncate">{m.User?.email}</p>
-                      {m.businessRole && (
-                        <span className={`inline-block text-xs px-1.5 py-0.5 rounded-full font-medium mt-1 ${ROLE_COLORS[m.businessRole] ?? "bg-slate-100 text-slate-600"}`}>
-                          {ROLE_LABELS[m.businessRole] ?? m.businessRole}
+        {/* Members grid — NSM sees DSM+DELEGATE only, ASSISTANT sees all */}
+        {!isLoading && (businessRole === "NSM" || businessRole === "ASSISTANT") && members.length > 0 && (() => {
+          // NSM: filter out ASSISTANT from display (backend already filters, but double-check on frontend)
+          const displayMembers = businessRole === "NSM"
+            ? members.filter((m: any) => m.businessRole !== "ASSISTANT")
+            : members;
+
+          return (
+            <div className="mt-6">
+              <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                {businessRole === "NSM" ? "Membres terrain" : "Tous les membres"} ({displayMembers.length})
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                {displayMembers.map((m: any) => {
+                  const firstName = m.User?.firstName ?? "";
+                  const lastName = m.User?.lastName ?? "";
+                  const initials = `${firstName[0] ?? ""}${lastName[0] ?? ""}`.toUpperCase();
+                  return (
+                    <div key={m.id} className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
+                        {initials || <User size={14} />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-slate-900 text-sm truncate">{firstName} {lastName}</p>
+                        <p className="text-xs text-slate-500 truncate">{m.User?.email}</p>
+                        {m.businessRole && (
+                          <span className={`inline-block text-xs px-1.5 py-0.5 rounded-full font-medium mt-1 ${ROLE_COLORS[m.businessRole] ?? "bg-slate-100 text-slate-600"}`}>
+                            {ROLE_LABELS[m.businessRole] ?? m.businessRole}
+                          </span>
+                        )}
+                      </div>
+                      {m.Team_OrganizationUser_teamIdToTeam?.name && (
+                        <span className="text-xs text-slate-400 flex-shrink-0">
+                          {m.Team_OrganizationUser_teamIdToTeam.name}
                         </span>
                       )}
+                      {m.organizationRole === "ADMIN" && (
+                        <ShieldCheck size={14} className="text-red-500 flex-shrink-0" />
+                      )}
                     </div>
-                    {m.organizationRole === "ADMIN" && (
-                      <ShieldCheck size={14} className="text-red-500 flex-shrink-0" />
-                    )}
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
       </div>
     </div>
   );

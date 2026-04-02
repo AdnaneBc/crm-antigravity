@@ -26,8 +26,16 @@ export class CreateDoctorDto {
 export class DoctorsService {
   constructor(private prisma: PrismaService) {}
 
+  /**
+   * List doctors — role-scoped:
+   * - DELEGATE: only doctors they have visited
+   * - DSM: doctors visited by delegates in their managed teams
+   * - NSM / ASSISTANT / ADMIN: all doctors in org
+   */
   async findAll(
     orgId: string,
+    orgUserId?: string,
+    businessRole?: string,
     query?: { search?: string; type?: string; sectorId?: string },
   ) {
     const where: any = { organizationId: orgId };
@@ -42,6 +50,22 @@ export class DoctorsService {
         { code: { contains: query.search, mode: 'insensitive' } },
       ];
     }
+
+    // DELEGATE: only doctors they have visited
+    if (businessRole === 'DELEGATE' && orgUserId) {
+      const visitedDoctorIds = await this._getVisitedDoctorIds([orgUserId]);
+      where.id = { in: visitedDoctorIds };
+    }
+
+    // DSM: doctors visited by delegates in their managed teams + themselves
+    if (businessRole === 'DSM' && orgUserId) {
+      const delegateIds = await this._getDsmTeamDelegateIds(orgUserId, orgId);
+      const allIds = [...delegateIds, orgUserId];
+      const visitedDoctorIds = await this._getVisitedDoctorIds(allIds);
+      where.id = { in: visitedDoctorIds };
+    }
+
+    // NSM / ASSISTANT / ADMIN: all doctors in org (no additional filter)
 
     return this.prisma.doctor.findMany({
       where,
@@ -94,5 +118,29 @@ export class DoctorsService {
       where: { organizationId: orgId },
       include: { _count: { select: { Doctor: true } } },
     });
+  }
+
+  // ── Private helpers ──────────────────────────────────────────────────────
+
+  private async _getVisitedDoctorIds(delegateIds: string[]): Promise<string[]> {
+    const visits = await this.prisma.visit.findMany({
+      where: { delegateId: { in: delegateIds } },
+      select: { doctorId: true },
+      distinct: ['doctorId'],
+    });
+    return visits.map((v) => v.doctorId);
+  }
+
+  private async _getDsmTeamDelegateIds(dsmOrgUserId: string, orgId: string): Promise<string[]> {
+    const managedTeams = await this.prisma.team.findMany({
+      where: { organizationId: orgId, managerId: dsmOrgUserId },
+      select: { id: true },
+    });
+    const teamIds = managedTeams.map((t) => t.id);
+    const delegates = await this.prisma.organizationUser.findMany({
+      where: { teamId: { in: teamIds }, businessRole: 'DELEGATE', isActive: true },
+      select: { id: true },
+    });
+    return delegates.map((d) => d.id);
   }
 }

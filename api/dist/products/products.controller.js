@@ -24,8 +24,8 @@ let ProductsController = class ProductsController {
     constructor(service) {
         this.service = service;
     }
-    findAll(orgId) {
-        return this.service.findAll(orgId);
+    findAll(orgId, orgUserId, businessRole, search, type) {
+        return this.service.findAll(orgId, orgUserId, businessRole, { search, type });
     }
     myStock(orgUserId, orgId) {
         return this.service.getDelegateStock(orgUserId, orgId);
@@ -64,8 +64,12 @@ exports.ProductsController = ProductsController;
 __decorate([
     (0, common_1.Get)(),
     __param(0, (0, current_user_decorator_1.CurrentUser)('organizationId')),
+    __param(1, (0, current_user_decorator_1.CurrentUser)('orgUserId')),
+    __param(2, (0, current_user_decorator_1.CurrentUser)('businessRole')),
+    __param(3, (0, common_1.Query)('search')),
+    __param(4, (0, common_1.Query)('type')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String]),
+    __metadata("design:paramtypes", [String, String, String, String, String]),
     __metadata("design:returntype", void 0)
 ], ProductsController.prototype, "findAll", null);
 __decorate([

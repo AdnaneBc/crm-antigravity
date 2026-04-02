@@ -54,7 +54,7 @@ export function useDeleteDoctor() {
 
 // ─── VISITS ───────────────────────────────────────────────────────────────────
 
-export function useVisits(params?: { doctorId?: string; delegateId?: string }) {
+export function useVisits(params?: { doctorId?: string; delegateId?: string; status?: string; startDate?: string; endDate?: string; teamId?: string }) {
   return useQuery({
     queryKey: ["visits", params],
     queryFn: () => visitsApi.list(params),
@@ -78,6 +78,17 @@ export function useCreateVisit() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: visitsApi.create,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["visits"] });
+      qc.invalidateQueries({ queryKey: ["analytics"] });
+    },
+  });
+}
+
+export function useCreateVisitBatch() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: visitsApi.createBatch,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["visits"] });
       qc.invalidateQueries({ queryKey: ["analytics"] });
@@ -145,8 +156,11 @@ export function usePendingValidationCount() {
 
 // ─── PROMOTIONAL ITEMS ────────────────────────────────────────────────────────
 
-export function usePromoItems() {
-  return useQuery({ queryKey: ["promo-items"], queryFn: promoItemsApi.list });
+export function usePromoItems(params?: { search?: string; type?: string }) {
+  return useQuery({
+    queryKey: ["promo-items", params],
+    queryFn: () => promoItemsApi.list(params),
+  });
 }
 
 export function usePromoItem(id: string) {

@@ -32,8 +32,13 @@ export class UsersController {
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.service.findOne(id);
+  findOne(
+    @Param('id') id: string,
+    @CurrentUser('organizationId') orgId: string,
+    @CurrentUser('orgUserId') orgUserId: string,
+    @CurrentUser('businessRole') businessRole: string,
+  ) {
+    return this.service.findOne(id, orgId, orgUserId, businessRole);
   }
 
   @Post()

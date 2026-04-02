@@ -37,6 +37,9 @@ let VisitsController = class VisitsController {
     create(dto, orgUserId, orgId, businessRole) {
         return this.service.create(dto, orgUserId, orgId, businessRole ?? '');
     }
+    createBatch(dto, orgUserId, orgId, businessRole) {
+        return this.service.createBatch(dto, orgUserId, orgId, businessRole ?? '');
+    }
     validate(id, dto, orgUserId, orgId, businessRole) {
         return this.service.validate(id, dto, orgUserId, orgId, businessRole ?? '');
     }
@@ -99,6 +102,16 @@ __decorate([
     __metadata("design:paramtypes", [visits_service_1.CreateVisitDto, String, String, String]),
     __metadata("design:returntype", void 0)
 ], VisitsController.prototype, "create", null);
+__decorate([
+    (0, common_1.Post)('batch'),
+    __param(0, (0, common_1.Body)()),
+    __param(1, (0, current_user_decorator_1.CurrentUser)('orgUserId')),
+    __param(2, (0, current_user_decorator_1.CurrentUser)('organizationId')),
+    __param(3, (0, current_user_decorator_1.CurrentUser)('businessRole')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [visits_service_1.BatchCreateVisitDto, String, String, String]),
+    __metadata("design:returntype", void 0)
+], VisitsController.prototype, "createBatch", null);
 __decorate([
     (0, common_1.Patch)(':id/validate'),
     __param(0, (0, common_1.Param)('id')),

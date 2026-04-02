@@ -54,9 +54,71 @@ let ProductsService = class ProductsService {
     constructor(prisma) {
         this.prisma = prisma;
     }
-    async findAll(orgId) {
+    async findAll(orgId, orgUserId, businessRole, query) {
+        const where = { organizationId: orgId };
+        if (query?.type)
+            where.type = query.type;
+        if (query?.search) {
+            where.OR = [
+                { name: { contains: query.search, mode: 'insensitive' } },
+                { description: { contains: query.search, mode: 'insensitive' } },
+                { gamme: { contains: query.search, mode: 'insensitive' } },
+            ];
+        }
+        if (businessRole === 'DELEGATE' && orgUserId) {
+            return this.prisma.promotionalItem.findMany({
+                where: {
+                    ...where,
+                    StockAllocation: { some: { delegateId: orgUserId } },
+                },
+                orderBy: { name: 'asc' },
+                include: {
+                    _count: { select: { VisitDistribution: true, StockAllocation: true } },
+                    StockAllocation: {
+                        where: { delegateId: orgUserId },
+                        include: {
+                            OrganizationUser: { include: { User: { select: { firstName: true, lastName: true } } } },
+                        },
+                    },
+                },
+            });
+        }
+        if (businessRole === 'DSM' && orgUserId) {
+            const teamDelegateIds = await this._getDsmTeamDelegateIds(orgUserId, orgId);
+            const allScopedIds = [...teamDelegateIds, orgUserId];
+            return this.prisma.promotionalItem.findMany({
+                where,
+                orderBy: { name: 'asc' },
+                include: {
+                    _count: { select: { VisitDistribution: true, StockAllocation: true } },
+                    StockAllocation: {
+                        where: { delegateId: { in: allScopedIds } },
+                        include: {
+                            OrganizationUser: { include: { User: { select: { firstName: true, lastName: true } } } },
+                        },
+                    },
+                },
+            });
+        }
+        if (businessRole === 'NSM') {
+            return this.prisma.promotionalItem.findMany({
+                where,
+                orderBy: { name: 'asc' },
+                include: {
+                    _count: { select: { VisitDistribution: true, StockAllocation: true } },
+                    StockAllocation: {
+                        where: {
+                            OrganizationUser: { businessRole: { not: 'ASSISTANT' } },
+                        },
+                        include: {
+                            OrganizationUser: { include: { User: { select: { firstName: true, lastName: true } } } },
+                        },
+                    },
+                },
+            });
+        }
         return this.prisma.promotionalItem.findMany({
-            where: { organizationId: orgId },
+            where,
             orderBy: { name: 'asc' },
             include: {
                 _count: { select: { VisitDistribution: true, StockAllocation: true } },
@@ -152,6 +214,18 @@ let ProductsService = class ProductsService {
             minStockLevel: item.minStockLevel,
             isZero: item.totalStock === 0,
         }));
+    }
+    async _getDsmTeamDelegateIds(dsmOrgUserId, orgId) {
+        const managedTeams = await this.prisma.team.findMany({
+            where: { organizationId: orgId, managerId: dsmOrgUserId },
+            select: { id: true },
+        });
+        const teamIds = managedTeams.map((t) => t.id);
+        const delegates = await this.prisma.organizationUser.findMany({
+            where: { teamId: { in: teamIds }, businessRole: 'DELEGATE', isActive: true },
+            select: { id: true },
+        });
+        return delegates.map((d) => d.id);
     }
 };
 exports.ProductsService = ProductsService;

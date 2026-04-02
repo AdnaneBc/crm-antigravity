@@ -24,8 +24,8 @@ let DoctorsController = class DoctorsController {
     constructor(service) {
         this.service = service;
     }
-    findAll(orgId, search, type, sectorId) {
-        return this.service.findAll(orgId, { search, type, sectorId });
+    findAll(orgId, orgUserId, businessRole, search, type, sectorId) {
+        return this.service.findAll(orgId, orgUserId, businessRole, { search, type, sectorId });
     }
     getSectors(orgId) {
         return this.service.getSectors(orgId);
@@ -57,11 +57,13 @@ exports.DoctorsController = DoctorsController;
 __decorate([
     (0, common_1.Get)(),
     __param(0, (0, current_user_decorator_1.CurrentUser)('organizationId')),
-    __param(1, (0, common_1.Query)('search')),
-    __param(2, (0, common_1.Query)('type')),
-    __param(3, (0, common_1.Query)('sectorId')),
+    __param(1, (0, current_user_decorator_1.CurrentUser)('orgUserId')),
+    __param(2, (0, current_user_decorator_1.CurrentUser)('businessRole')),
+    __param(3, (0, common_1.Query)('search')),
+    __param(4, (0, common_1.Query)('type')),
+    __param(5, (0, common_1.Query)('sectorId')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, String, String, String]),
+    __metadata("design:paramtypes", [String, String, String, String, String, String]),
     __metadata("design:returntype", void 0)
 ], DoctorsController.prototype, "findAll", null);
 __decorate([

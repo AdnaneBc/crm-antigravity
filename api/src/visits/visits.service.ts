@@ -23,7 +23,12 @@ export class CreateVisitDto {
   @IsString() doctorId: string;
   @IsDateString() visitedAt: string;         // the planned date
   @IsOptional() @IsString() notes?: string;  // planning notes only
-  // delegateId intentionally removed — each user always plans for themselves
+}
+
+export class BatchCreateVisitDto {
+  @IsArray() @IsString({ each: true }) doctorIds: string[];
+  @IsDateString() visitedAt: string;  // day only (date without time, e.g. "2026-04-05")
+  @IsOptional() @IsString() notes?: string;
 }
 
 export class UpdateVisitDto {
@@ -62,8 +67,8 @@ export class VisitsService {
     if (businessRole === 'DELEGATE') {
       where.delegateId = orgUserId;
     } else if (businessRole === 'DSM') {
-      const teamIds = await this._getDsmTeamDelegateIds(orgUserId);
-      where.delegateId = { in: [...teamIds, orgUserId] };
+      const teamDelegateIds = await this._getDsmTeamDelegateIdsByTeam(orgUserId, orgId);
+      where.delegateId = { in: [...teamDelegateIds, orgUserId] };
     }
     // NSM sees all visits in the org (no additional filter)
     // ASSISTANT sees all visits in the org (for logistics visibility)
@@ -71,6 +76,28 @@ export class VisitsService {
     if (query?.doctorId) where.doctorId = query.doctorId;
     if (query?.delegateId && businessRole !== 'DELEGATE') where.delegateId = query.delegateId;
     if (query?.status) where.status = query.status;
+
+    // Team-based filtering — allows DSM/NSM to filter by teamId
+    if (query?.teamId) {
+      const teamMembers = await this.prisma.organizationUser.findMany({
+        where: { teamId: query.teamId, isActive: true },
+        select: { id: true },
+      });
+      const memberIds = teamMembers.map((m) => m.id);
+      // Intersect with existing delegateId filter if present
+      if (where.delegateId?.in) {
+        where.delegateId = { in: where.delegateId.in.filter((id: string) => memberIds.includes(id)) };
+      } else if (!where.delegateId) {
+        where.delegateId = { in: memberIds };
+      }
+    }
+
+    // Date range filtering
+    if (query?.startDate || query?.endDate) {
+      where.visitedAt = {};
+      if (query.startDate) where.visitedAt.gte = new Date(query.startDate);
+      if (query.endDate) where.visitedAt.lte = new Date(query.endDate);
+    }
 
     return this.prisma.visit.findMany({
       where,
@@ -130,7 +157,8 @@ export class VisitsService {
     return { count };
   }
 
-  // ─── CREATE (planning phase — always PENDING_VALIDATION) ──────────────────
+  // ─── CREATE (planning phase) ──────────────────────────────────────────────
+  // DELEGATE → PENDING_VALIDATION, DSM → APPROVED (auto-approval for own visits)
 
   async create(
     dto: CreateVisitDto,
@@ -146,17 +174,18 @@ export class VisitsService {
       throw new ForbiddenException("L'assistant ne peut pas planifier de visites");
     }
 
-    // DELEGATE and DSM always plan for themselves
-    const resolvedDelegateId = orgUserId;
+    // DSM auto-approves their own visits; DELEGATE needs validation
+    const status = businessRole === 'DSM' ? 'APPROVED' : 'PENDING_VALIDATION';
 
     return this.prisma.visit.create({
       data: {
         organizationId: orgId,
-        delegateId: resolvedDelegateId,
+        delegateId: orgUserId,
         doctorId: dto.doctorId,
         visitedAt: new Date(dto.visitedAt),
-        status: 'PENDING_VALIDATION' as any,
+        status: status as any,
         notes: dto.notes,
+        ...(businessRole === 'DSM' ? { validatedById: orgUserId, validatedAt: new Date() } : {}),
         updatedAt: new Date(),
       },
       include: {
@@ -164,6 +193,51 @@ export class VisitsService {
         OrganizationUser: { include: { User: { select: { firstName: true, lastName: true } as any } } },
       },
     } as any) as any;
+  }
+
+  // ─── BATCH CREATE (daily planning — multiple doctors for one day) ───────────
+
+  async createBatch(
+    dto: BatchCreateVisitDto,
+    orgUserId: string,
+    orgId: string,
+    businessRole: string,
+  ) {
+    if (businessRole === 'NSM') {
+      throw new ForbiddenException('Le NSM ne peut pas planifier de visites');
+    }
+    if (businessRole === 'ASSISTANT') {
+      throw new ForbiddenException("L'assistant ne peut pas planifier de visites");
+    }
+    if (!dto.doctorIds?.length) {
+      throw new BadRequestException('Vous devez sélectionner au moins un médecin');
+    }
+
+    const status = businessRole === 'DSM' ? 'APPROVED' : 'PENDING_VALIDATION';
+    const planDate = new Date(dto.visitedAt);
+
+    const created = [];
+    for (const doctorId of dto.doctorIds) {
+      const visit = await this.prisma.visit.create({
+        data: {
+          organizationId: orgId,
+          delegateId: orgUserId,
+          doctorId,
+          visitedAt: planDate,
+          status: status as any,
+          notes: dto.notes,
+          ...(businessRole === 'DSM' ? { validatedById: orgUserId, validatedAt: new Date() } : {}),
+          updatedAt: new Date(),
+        },
+        include: {
+          doctor: { select: { firstName: true, lastName: true } },
+          OrganizationUser: { include: { User: { select: { firstName: true, lastName: true } as any } } },
+        },
+      } as any) as any;
+      created.push(visit);
+    }
+
+    return created;
   }
 
   // ─── VALIDATE (DSM approves or rejects a delegate's visit) ────────────────
@@ -419,6 +493,20 @@ export class VisitsService {
   private async _getDsmTeamDelegateIds(dsmOrgUserId: string): Promise<string[]> {
     const delegates = await this.prisma.organizationUser.findMany({
       where: { managerId: dsmOrgUserId, businessRole: 'DELEGATE', isActive: true },
+      select: { id: true },
+    });
+    return delegates.map((d) => d.id);
+  }
+
+  /** Team-based lookup — consistent with doctors/products services */
+  private async _getDsmTeamDelegateIdsByTeam(dsmOrgUserId: string, orgId: string): Promise<string[]> {
+    const managedTeams = await this.prisma.team.findMany({
+      where: { organizationId: orgId, managerId: dsmOrgUserId },
+      select: { id: true },
+    });
+    const teamIds = managedTeams.map((t) => t.id);
+    const delegates = await this.prisma.organizationUser.findMany({
+      where: { teamId: { in: teamIds }, businessRole: 'DELEGATE', isActive: true },
       select: { id: true },
     });
     return delegates.map((d) => d.id);

@@ -29,8 +29,8 @@ let UsersController = class UsersController {
     getTeams(orgId, orgUserId, businessRole) {
         return this.service.getTeams(orgId, orgUserId, businessRole);
     }
-    findOne(id) {
-        return this.service.findOne(id);
+    findOne(id, orgId, orgUserId, businessRole) {
+        return this.service.findOne(id, orgId, orgUserId, businessRole);
     }
     create(dto, orgId) {
         return this.service.create(dto, orgId);
@@ -64,8 +64,11 @@ __decorate([
 __decorate([
     (0, common_1.Get)(':id'),
     __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, current_user_decorator_1.CurrentUser)('organizationId')),
+    __param(2, (0, current_user_decorator_1.CurrentUser)('orgUserId')),
+    __param(3, (0, current_user_decorator_1.CurrentUser)('businessRole')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String]),
+    __metadata("design:paramtypes", [String, String, String, String]),
     __metadata("design:returntype", void 0)
 ], UsersController.prototype, "findOne", null);
 __decorate([

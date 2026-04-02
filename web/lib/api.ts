@@ -60,12 +60,14 @@ export const doctorsApi = {
 };
 
 export const visitsApi = {
-  list: (params?: { doctorId?: string; delegateId?: string; status?: string }) =>
+  list: (params?: { doctorId?: string; delegateId?: string; status?: string; startDate?: string; endDate?: string; teamId?: string }) =>
     api.get("/visits", { params }).then((r) => r.data),
   get: (id: string) => api.get(`/visits/${id}`).then((r) => r.data),
   teamDelegates: () => api.get("/visits/team-delegates").then((r) => r.data),
   pendingCount: () => api.get("/visits/pending-count").then((r) => r.data),
   create: (data: any) => api.post("/visits", data).then((r) => r.data),
+  createBatch: (data: { doctorIds: string[]; visitedAt: string; notes?: string }) =>
+    api.post("/visits/batch", data).then((r) => r.data),
   validate: (id: string, data: { action: "approve" | "reject"; rejectionReason?: string }) =>
     api.patch(`/visits/${id}/validate`, data).then((r) => r.data),
   submitReport: (id: string, data: any) =>
@@ -76,7 +78,8 @@ export const visitsApi = {
 };
 
 export const promoItemsApi = {
-  list: () => api.get("/promotional-items").then((r) => r.data),
+  list: (params?: { search?: string; type?: string }) =>
+    api.get("/promotional-items", { params }).then((r) => r.data),
   get: (id: string) => api.get(`/promotional-items/${id}`).then((r) => r.data),
   myStock: () => api.get("/promotional-items/my-stock").then((r) => r.data),
   create: (data: any) => api.post("/promotional-items", data).then((r) => r.data),

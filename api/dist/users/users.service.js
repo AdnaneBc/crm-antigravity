@@ -102,14 +102,30 @@ let UsersService = class UsersService {
             });
         }
         if (businessRole === 'DSM' && orgUserId) {
+            const managedTeams = await this.prisma.team.findMany({
+                where: { organizationId: orgId, managerId: orgUserId },
+                select: { id: true },
+            });
+            const managedTeamIds = managedTeams.map((t) => t.id);
             return this.prisma.organizationUser.findMany({
                 where: {
                     organizationId: orgId,
                     isActive: true,
                     OR: [
                         { id: orgUserId },
-                        { managerId: orgUserId },
+                        { teamId: { in: managedTeamIds }, businessRole: 'DELEGATE' },
                     ],
+                },
+                include: baseInclude,
+                orderBy: { createdAt: 'asc' },
+            });
+        }
+        if (businessRole === 'NSM') {
+            return this.prisma.organizationUser.findMany({
+                where: {
+                    organizationId: orgId,
+                    isActive: true,
+                    businessRole: { in: ['NSM', 'DSM', 'DELEGATE'] },
                 },
                 include: baseInclude,
                 orderBy: { createdAt: 'asc' },
@@ -121,8 +137,8 @@ let UsersService = class UsersService {
             orderBy: { createdAt: 'asc' },
         });
     }
-    async findOne(id) {
-        return this.prisma.organizationUser.findUnique({
+    async findOne(id, orgId, orgUserId, businessRole) {
+        const target = await this.prisma.organizationUser.findUnique({
             where: { id },
             include: {
                 User: true,
@@ -132,6 +148,28 @@ let UsersService = class UsersService {
                 Visit: { orderBy: { visitedAt: 'desc' }, take: 10, include: { doctor: true } },
             },
         });
+        if (!target || target.organizationId !== orgId) {
+            throw new common_1.NotFoundException('Utilisateur introuvable');
+        }
+        if (businessRole === 'DSM' && orgUserId && id !== orgUserId) {
+            const managedTeams = await this.prisma.team.findMany({
+                where: { organizationId: orgId, managerId: orgUserId },
+                select: { id: true },
+            });
+            const managedTeamIds = managedTeams.map((t) => t.id);
+            if (!target.teamId ||
+                !managedTeamIds.includes(target.teamId) ||
+                target.businessRole !== 'DELEGATE') {
+                throw new common_1.ForbiddenException('Vous ne pouvez consulter que les membres de vos équipes');
+            }
+        }
+        if (businessRole === 'NSM' && target.businessRole === 'ASSISTANT') {
+            throw new common_1.ForbiddenException('Le NSM ne peut pas consulter les profils assistants');
+        }
+        if (businessRole === 'DELEGATE' && orgUserId && id !== orgUserId) {
+            throw new common_1.ForbiddenException('Vous ne pouvez consulter que votre propre profil');
+        }
+        return target;
     }
     async create(dto, orgId) {
         const passwordHash = await bcrypt.hash(dto.password, 12);
@@ -205,6 +243,21 @@ let UsersService = class UsersService {
                 include: { User: { select: { firstName: true, lastName: true } } },
             },
         };
+        const teamIncludeNoAssistant = {
+            OrganizationUser_OrganizationUser_teamIdToTeam: {
+                where: {
+                    isActive: true,
+                    businessRole: { not: 'ASSISTANT' },
+                },
+                include: {
+                    User: { select: { firstName: true, lastName: true, email: true, phone: true } },
+                    Sector: { select: { id: true, name: true } },
+                },
+            },
+            OrganizationUser_Team_managerIdToOrganizationUser: {
+                include: { User: { select: { firstName: true, lastName: true } } },
+            },
+        };
         if (businessRole === 'DSM' && orgUserId) {
             return this.prisma.team.findMany({
                 where: { organizationId: orgId, managerId: orgUserId },
@@ -221,6 +274,12 @@ let UsersService = class UsersService {
             return this.prisma.team.findMany({
                 where: { organizationId: orgId, id: delegate.teamId },
                 include: teamInclude,
+            });
+        }
+        if (businessRole === 'NSM') {
+            return this.prisma.team.findMany({
+                where: { organizationId: orgId },
+                include: teamIncludeNoAssistant,
             });
         }
         return this.prisma.team.findMany({
